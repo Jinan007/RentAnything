@@ -1,0 +1,40 @@
+{
+  "name": "rentanything",
+  "version": "1.0.0",
+  "description": "3D animation with three.js, captions and video rendering with Remotion",
+  "main": "src/index.ts",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts MainScene out/MainScene.mp4",
+    "still": "remotion still src/index.ts MainScene out/still.png --frame=45",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jinan007/RentAnything.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Jinan007/RentAnything/issues"
+  },
+  "homepage": "https://github.com/Jinan007/RentAnything#readme",
+  "dependencies": {
+    "@react-three/fiber": "9.8.2",
+    "@remotion/cli": "4.0.540",
+    "@remotion/player": "4.0.540",
+    "@remotion/three": "4.0.540",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "remotion": "4.0.540",
+    "three": "0.187.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@types/three": "0.187.0",
+    "typescript": "5.9.3"
+  },
+  "private": true
+}

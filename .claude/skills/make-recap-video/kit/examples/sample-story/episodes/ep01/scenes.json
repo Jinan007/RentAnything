@@ -1,0 +1,11 @@
+{
+  "title": "Episode 1: The Rank Nobody Wanted",
+  "episode": 1,
+  "scenes": [
+    {"id": 1, "narration": "He was the weakest hunter alive, and everyone knew it.", "characters": ["kai"], "setting": "ruined_gate", "shot": "wide", "mood": "sad", "camera": "zoom_in", "sfx": ["heartbeat"], "chapter": "The weakest hunter"},
+    {"id": 2, "narration": "So when the gate cracked open, they sent him in first.", "characters": ["kai"], "setting": "ruined_gate", "shot": "low_angle", "mood": "tense", "camera": "pan_up", "fx": ["shake"], "sfx": ["impact"]},
+    {"id": 3, "narration": "Inside, something answered him.", "characters": ["kai"], "setting": "dungeon_hall", "shot": "close", "mood": "mysterious", "camera": "drift", "overlay": {"type": "system", "text": "Hidden quest unlocked.\nSurvive the first night."}, "sfx": ["system_ping"]},
+    {"id": 4, "narration": "Mira saw the blue light and knew her team had just lost its chance.", "characters": ["mira"], "setting": "ruined_gate", "shot": "medium", "mood": "tense", "camera": "pan_right", "sfx": ["whoosh"]},
+    {"id": 5, "narration": "Level up.", "characters": ["kai"], "setting": "dungeon_hall", "shot": "action", "mood": "epic", "camera": "zoom_out", "fx": ["flash"], "overlay": {"type": "bigtext", "text": "LEVEL UP"}, "sfx": ["boom", "shimmer"]}
+  ]
+}

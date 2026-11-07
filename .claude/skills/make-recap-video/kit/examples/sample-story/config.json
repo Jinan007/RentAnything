@@ -1,0 +1,3 @@
+{ "title": "The Last Awakener (sample)", "aspect": "9:16", "scene_seconds": 9,
+  "voice": { "engine": "piper", "voice": "en_US-ryan-high", "speed": 1.0 },
+  "music": { "mode": "generated", "mood": "dark" } }

@@ -1,0 +1,7 @@
+{
+  "name": "nokoi-recap-studio",
+  "version": "1.0.0",
+  "description": "Make original manhwa-style recap videos end to end: story bible, episode scripts, consistent panel-image prompts, free local text-to-speech, and a finished video with Ken-Burns motion, captions, system windows, SFX and music.",
+  "author": { "name": "Nokoi Recap" },
+  "keywords": ["manhwa", "recap", "youtube", "storytelling", "faceless youtube", "text-to-speech", "piper", "video automation"]
+}

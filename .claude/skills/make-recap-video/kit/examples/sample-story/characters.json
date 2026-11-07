@@ -1,0 +1,14 @@
+{
+  "style": "manhwa webtoon illustration, clean sharp lineart, cel shading with painterly highlights, vivid cinematic colors, dramatic lighting, highly detailed, original characters",
+  "negative": "text, letters, watermark, signature, speech bubbles, logo, extra fingers, deformed hands, extra limbs, blurry, low quality",
+  "characters": {
+    "kai": {"name": "Kai Ren", "say": "Kye Ren",
+            "look": "18-year-old boy, messy black hair with one silver streak over the left eye, sharp amber eyes, thin scar across the right cheek, worn grey hooded jacket with a torn sleeve, fingerless black gloves"},
+    "mira": {"name": "Mira Vale", "say": "Meera Vayl",
+             "look": "20-year-old woman, long straight white hair in a high ponytail, cold violet eyes, black and crimson hunter uniform with a short cape, silver blade strapped to her back"}
+  },
+  "locations": {
+    "ruined_gate": "ruined city gate at dusk, cracked stone, drifting ash, a cracked blue portal glowing above",
+    "dungeon_hall": "vast underground hall of black stone pillars lit by floating blue crystals"
+  }
+}

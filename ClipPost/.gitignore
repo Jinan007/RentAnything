@@ -1,0 +1,12 @@
+# Build output and local machine files
+build/
+app/build/
+.gradle/
+local.properties
+.idea/
+*.iml
+.cxx/
+captures/
+.DS_Store
+
+# NOTE: keystore/clippost-debug.jks is intentionally committed (fixed signing key).

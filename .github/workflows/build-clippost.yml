@@ -1,0 +1,46 @@
+name: Build ClipPost debug APK
+
+on:
+  push:
+    paths:
+      - "ClipPost/**"
+      - ".github/workflows/build-clippost.yml"
+  pull_request:
+    paths:
+      - "ClipPost/**"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ClipPost
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle (with caching)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Build debug APK
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Print the signing SHA-1 (paste this into Google Cloud later)
+        run: keytool -list -v -keystore keystore/clippost-debug.jks -alias clippost -storepass clippost123 | grep SHA1
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: clippost-debug-apk
+          path: ClipPost/app/build/outputs/apk/debug/app-debug.apk

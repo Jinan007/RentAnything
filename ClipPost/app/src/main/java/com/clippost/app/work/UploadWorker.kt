@@ -4,7 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
-import androidx.work.Result
+import androidx.work.ListenableWorker.Result
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.clippost.app.AuthResult

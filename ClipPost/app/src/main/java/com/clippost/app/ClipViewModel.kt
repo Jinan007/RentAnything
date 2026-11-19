@@ -20,16 +20,20 @@ import com.clippost.app.data.AppDatabase
 import com.clippost.app.data.ClipStatus
 import com.clippost.app.data.toClip
 import com.clippost.app.data.toEntity
+import com.clippost.app.captions.FacecamRegion
 import com.clippost.app.work.KEY_CAPTIONS
 import com.clippost.app.work.KEY_CLIP_ID
 import com.clippost.app.work.KEY_DESCRIPTION
 import com.clippost.app.work.KEY_ERROR
+import com.clippost.app.work.KEY_FACECAM
 import com.clippost.app.work.KEY_PERCENT
 import com.clippost.app.work.KEY_PRIVACY
 import com.clippost.app.work.KEY_PUBLISH_AT
 import com.clippost.app.work.KEY_TITLE
 import com.clippost.app.work.KEY_STAGE
+import com.clippost.app.work.KEY_TOP_TEXT
 import com.clippost.app.work.KEY_URI
+import com.clippost.app.work.KEY_VERTICAL
 import com.clippost.app.work.KEY_VIDEO_ID
 import com.clippost.app.work.KEY_WARNING
 import com.clippost.app.work.TAG_UPLOAD
@@ -156,6 +160,12 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setCaptions(id: String, captions: Boolean) = edit(id) { it.copy(captions = captions) }
 
+    fun setVertical(id: String, vertical: Boolean) = edit(id) { it.copy(vertical = vertical) }
+
+    fun setFacecam(id: String, region: FacecamRegion) = edit(id) { it.copy(facecam = region) }
+
+    fun setTopText(id: String, text: String) = edit(id) { it.copy(topText = text.take(MAX_TITLE)) }
+
     /** Schedules publishing (or clears the schedule with null). Scheduled videos are always Private until then. */
     fun setPublishAt(id: String, millis: Long?) = edit(id) {
         it.copy(publishAtMillis = millis, privacy = if (millis != null) Privacy.PRIVATE else it.privacy)
@@ -199,7 +209,10 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
                     KEY_DESCRIPTION to buildDescription(clip),
                     KEY_PRIVACY to clip.privacy.name,
                     KEY_PUBLISH_AT to (publishAt ?: -1L),
-                    KEY_CAPTIONS to clip.captions
+                    KEY_CAPTIONS to clip.captions,
+                    KEY_VERTICAL to clip.vertical,
+                    KEY_FACECAM to clip.facecam.name,
+                    KEY_TOP_TEXT to clip.topText.trim()
                 )
             )
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
@@ -216,7 +229,8 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
             withContext(Dispatchers.IO) {
                 dao.updateEdits(
                     clip.id, clip.title, clip.caption, clip.privacy.name,
-                    clip.addShorts, clip.captions, clip.publishAtMillis
+                    clip.addShorts, clip.captions, clip.vertical, clip.facecam.name, clip.topText,
+                    clip.publishAtMillis
                 )
                 dao.setWorkId(clip.id, request.id.toString())
                 dao.updateStatus(clip.id, ClipStatus.QUEUED, 0, null, null, null)
@@ -291,7 +305,8 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
             withContext(Dispatchers.IO) {
                 dao.updateEdits(
                     clip.id, clip.title, clip.caption, clip.privacy.name,
-                    clip.addShorts, clip.captions, clip.publishAtMillis
+                    clip.addShorts, clip.captions, clip.vertical, clip.facecam.name, clip.topText,
+                    clip.publishAtMillis
                 )
             }
         }

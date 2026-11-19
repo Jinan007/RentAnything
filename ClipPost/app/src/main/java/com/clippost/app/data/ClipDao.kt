@@ -20,7 +20,8 @@ interface ClipDao {
 
     @Query(
         "UPDATE clips SET title = :title, caption = :caption, privacy = :privacy, " +
-            "addShorts = :addShorts, captions = :captions, publishAtMillis = :publishAtMillis WHERE id = :id"
+            "addShorts = :addShorts, captions = :captions, vertical = :vertical, facecam = :facecam, " +
+            "topText = :topText, publishAtMillis = :publishAtMillis WHERE id = :id"
     )
     suspend fun updateEdits(
         id: String,
@@ -29,6 +30,9 @@ interface ClipDao {
         privacy: String,
         addShorts: Boolean,
         captions: Boolean,
+        vertical: Boolean,
+        facecam: String,
+        topText: String,
         publishAtMillis: Long?
     )
 

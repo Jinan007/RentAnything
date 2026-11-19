@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [ClipEntity::class], version = 2, exportSchema = false)
+@Database(entities = [ClipEntity::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun clipDao(): ClipDao
@@ -23,6 +23,15 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Version 3 added the vertical split-screen settings. */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE clips ADD COLUMN vertical INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE clips ADD COLUMN facecam TEXT NOT NULL DEFAULT 'TOP_RIGHT'")
+                db.execSQL("ALTER TABLE clips ADD COLUMN topText TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         /** One shared database for the screen and the background worker. */
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
@@ -30,7 +39,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "clippost.db"
-                ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
             }
     }
 }

@@ -7,6 +7,7 @@ import androidx.room.PrimaryKey
 import com.clippost.app.Clip
 import com.clippost.app.Privacy
 import com.clippost.app.UploadState
+import com.clippost.app.captions.FacecamRegion
 
 /** The upload state is stored as plain text so the database stays simple. */
 object ClipStatus {
@@ -29,6 +30,9 @@ data class ClipEntity(
     val privacy: String,
     val addShorts: Boolean,
     @ColumnInfo(defaultValue = "0") val captions: Boolean,
+    @ColumnInfo(defaultValue = "0") val vertical: Boolean,
+    @ColumnInfo(defaultValue = "'TOP_RIGHT'") val facecam: String,
+    @ColumnInfo(defaultValue = "''") val topText: String,
     val publishAtMillis: Long?,
     val status: String,
     val percent: Int,
@@ -49,6 +53,9 @@ fun Clip.toEntity(workId: String? = null): ClipEntity = ClipEntity(
     privacy = privacy.name,
     addShorts = addShorts,
     captions = captions,
+    vertical = vertical,
+    facecam = facecam.name,
+    topText = topText,
     publishAtMillis = publishAtMillis,
     status = when (upload) {
         UploadState.Idle -> ClipStatus.IDLE
@@ -84,6 +91,9 @@ fun ClipEntity.toClip(): Clip = Clip(
     privacy = runCatching { Privacy.valueOf(privacy) }.getOrDefault(Privacy.PRIVATE),
     addShorts = addShorts,
     captions = captions,
+    vertical = vertical,
+    facecam = runCatching { FacecamRegion.valueOf(facecam) }.getOrDefault(FacecamRegion.TOP_RIGHT),
+    topText = topText,
     publishAtMillis = publishAtMillis,
     upload = when (status) {
         ClipStatus.QUEUED -> UploadState.Queued

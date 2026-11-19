@@ -10,6 +10,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -62,6 +64,7 @@ import com.clippost.app.Privacy
 import com.clippost.app.Quota
 import com.clippost.app.UploadState
 import com.clippost.app.YouTubeErrors
+import com.clippost.app.captions.FacecamRegion
 import com.clippost.app.displayName
 import com.clippost.app.keepReadAccess
 import com.clippost.app.signingSha1
@@ -166,6 +169,9 @@ fun ClipListScreen(viewModel: ClipViewModel = viewModel()) {
                                 onPrivacyChange = { viewModel.setPrivacy(clip.id, it) },
                                 onShortsChange = { viewModel.setAddShorts(clip.id, it) },
                                 onCaptionsChange = { viewModel.setCaptions(clip.id, it) },
+                                onVerticalChange = { viewModel.setVertical(clip.id, it) },
+                                onFacecamChange = { viewModel.setFacecam(clip.id, it) },
+                                onTopTextChange = { viewModel.setTopText(clip.id, it) },
                                 onScheduleChange = { viewModel.setPublishAt(clip.id, it) },
                                 onUpload = { viewModel.upload(clip.id) },
                                 onCancel = { viewModel.cancel(clip.id) },
@@ -268,6 +274,7 @@ private fun ConnectCard(state: AuthState, appInfo: String, onConnect: () -> Unit
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ClipCard(
     clip: Clip,
@@ -277,6 +284,9 @@ private fun ClipCard(
     onPrivacyChange: (Privacy) -> Unit,
     onShortsChange: (Boolean) -> Unit,
     onCaptionsChange: (Boolean) -> Unit,
+    onVerticalChange: (Boolean) -> Unit,
+    onFacecamChange: (FacecamRegion) -> Unit,
+    onTopTextChange: (String) -> Unit,
     onScheduleChange: (Long?) -> Unit,
     onUpload: () -> Unit,
     onCancel: () -> Unit,
@@ -380,6 +390,42 @@ private fun ClipCard(
                         "The first time it downloads a speech model (about 40 MB). Takes extra time.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray
+                )
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = clip.vertical, onCheckedChange = onVerticalChange, enabled = editable)
+                Spacer(Modifier.width(8.dp))
+                Text("Make vertical split-screen")
+            }
+            if (clip.vertical) {
+                Text(
+                    "Rebuilds the clip as 1080 x 1920: the face cam on top, the gameplay below. " +
+                        "Videos up to 3 minutes can appear in Shorts, so turn on #Shorts too.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+                Text("Where is the face cam in your clip?", style = MaterialTheme.typography.labelMedium)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    FacecamRegion.entries.forEach { region ->
+                        FilterChip(
+                            selected = clip.facecam == region,
+                            onClick = { onFacecamChange(region) },
+                            enabled = editable,
+                            label = { Text(region.label) }
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = clip.topText,
+                    onValueChange = onTopTextChange,
+                    label = { Text("Text on the split line (empty = use the title)") },
+                    singleLine = true,
+                    enabled = editable,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
 

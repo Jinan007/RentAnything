@@ -14,6 +14,9 @@ import com.clippost.app.UploadException
 import com.clippost.app.YouTubeAuth
 import com.clippost.app.YouTubeUploader
 import com.clippost.app.captions.CaptionPipeline
+import com.clippost.app.captions.CaptionResult
+import com.clippost.app.captions.FacecamRegion
+import com.clippost.app.captions.VerticalSpec
 import com.clippost.app.data.AppDatabase
 import com.clippost.app.data.ClipStatus
 import kotlinx.coroutines.CancellationException
@@ -28,6 +31,9 @@ const val KEY_DESCRIPTION = "description"
 const val KEY_PRIVACY = "privacy"
 const val KEY_PUBLISH_AT = "publishAt"   // epoch milliseconds, or -1 for "publish now"
 const val KEY_CAPTIONS = "captions"      // true = add auto captions before uploading
+const val KEY_VERTICAL = "vertical"      // true = rebuild as a vertical split-screen first
+const val KEY_FACECAM = "facecam"        // FacecamRegion name
+const val KEY_TOP_TEXT = "topText"       // text box on the split line
 const val KEY_PERCENT = "percent"        // progress, shown while running
 const val KEY_STAGE = "stage"            // while making captions: what the worker is doing
 const val KEY_VIDEO_ID = "videoId"       // result, on success
@@ -63,6 +69,15 @@ class UploadWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
             .getOrDefault(Privacy.PRIVATE)
         val publishAt = inputData.getLong(KEY_PUBLISH_AT, -1L).takeIf { it > 0 }
         val wantCaptions = inputData.getBoolean(KEY_CAPTIONS, false)
+        val vertical = if (inputData.getBoolean(KEY_VERTICAL, false)) {
+            VerticalSpec(
+                region = runCatching { FacecamRegion.valueOf(inputData.getString(KEY_FACECAM).orEmpty()) }
+                    .getOrDefault(FacecamRegion.TOP_RIGHT),
+                topText = inputData.getString(KEY_TOP_TEXT).orEmpty().ifBlank { title }
+            )
+        } else {
+            null
+        }
 
         // Shows the notification and keeps the job alive. If Android refuses, we still try to upload.
         safeForeground(getForegroundInfo())
@@ -71,19 +86,19 @@ class UploadWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
         // ---- Step 1 (optional): captions -----------------------------------------------------
         var videoUri = Uri.parse(uriString)
         var captionNote: String? = null
-        if (wantCaptions) {
+        if (wantCaptions || vertical != null) {
             try {
-                val made = makeCaptions(videoUri)
+                val made = makeCaptions(videoUri, wantCaptions, vertical)
                 if (made.file != null) videoUri = Uri.fromFile(made.file)
                 captionNote = made.note
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
                 // Includes native-library problems (Error), so a captioning problem never crashes the app.
-                Log.w("ClipPost", "Captioning failed", e)
+                Log.w("ClipPost", "Editing failed", e)
                 return fail(
-                    "Captions failed: ${e.message ?: e.javaClass.simpleName}. " +
-                        "Turn off \"Add auto captions\" to upload without them."
+                    "Editing the video failed: ${e.message ?: e.javaClass.simpleName}. " +
+                        "Turn off captions and the vertical layout to upload the original instead."
                 )
             }
             report(null, 0) // switch the card from "captions" to "uploading"
@@ -136,10 +151,16 @@ class UploadWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
     }
 
     /** Runs the caption pipeline, or reuses the file an earlier attempt already made. */
-    private suspend fun makeCaptions(source: Uri): com.clippost.app.captions.CaptionResult {
+    private suspend fun makeCaptions(
+        source: Uri,
+        captions: Boolean,
+        vertical: VerticalSpec?
+    ): CaptionResult {
         val out = captionedFile
-        if (out.exists() && out.length() > 0) return com.clippost.app.captions.CaptionResult(out, null)
-        return CaptionPipeline.run(applicationContext, source, out) { stage, percent -> report(stage, percent) }
+        if (out.exists() && out.length() > 0) return CaptionResult(out, null)
+        return CaptionPipeline.run(applicationContext, source, out, captions, vertical) { stage, percent ->
+            report(stage, percent)
+        }
     }
 
     /**

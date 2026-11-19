@@ -24,12 +24,13 @@ import androidx.media3.effect.TextOverlay
 @OptIn(UnstableApi::class)
 class CaptionOverlay(
     private val lines: List<CaptionLine>,
-    private val textSizePx: Int
+    private val textSizePx: Int,
+    centerY: Float = CAPTION_Y
 ) : TextOverlay() {
 
     // x = 0 is the middle; y = -1 is the very bottom, so -0.55 sits about a quarter up from the bottom.
     private val placement: OverlaySettings = StaticOverlaySettings.Builder()
-        .setBackgroundFrameAnchor(0f, CAPTION_Y)
+        .setBackgroundFrameAnchor(0f, centerY)
         .build()
 
     // A blank space (not an empty string) when nobody is speaking, so the overlay never has zero size.
@@ -74,9 +75,10 @@ class CaptionOverlay(
 
     override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings = placement
 
-    private companion object {
+    companion object {
+        /** Default position for normal landscape or portrait videos. */
         const val CAPTION_Y = -0.55f
-        val BOX_COLOR = 0xB3000000.toInt()          // black, about 70% opaque
-        val HIGHLIGHT_COLOR = 0xFFFFD60A.toInt()    // yellow
+        private val BOX_COLOR = 0xB3000000.toInt()          // black, about 70% opaque
+        private val HIGHLIGHT_COLOR = 0xFFFFD60A.toInt()    // yellow
     }
 }

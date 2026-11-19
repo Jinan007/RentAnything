@@ -34,18 +34,24 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.clippost.app.AuthState
 import com.clippost.app.Clip
 import com.clippost.app.ClipViewModel
+import com.clippost.app.CrashReporter
 import com.clippost.app.MAX_CAPTION
 import com.clippost.app.MAX_TITLE
 import com.clippost.app.Privacy
@@ -106,6 +112,18 @@ fun ClipListScreen(viewModel: ClipViewModel = viewModel()) {
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
 
+            // If the app crashed last time, show why (and let the user copy it).
+            var crash by remember { mutableStateOf(CrashReporter.lastCrash(context)) }
+            crash?.let { report ->
+                CrashCard(
+                    report = report,
+                    onDismiss = {
+                        CrashReporter.clear(context)
+                        crash = null
+                    }
+                )
+            }
+
             val appInfo = remember { "Package: ${context.packageName}\nSHA-1: ${context.signingSha1()}" }
             ConnectCard(state = viewModel.authState, appInfo = appInfo, onConnect = viewModel::connect)
 
@@ -136,6 +154,28 @@ fun ClipListScreen(viewModel: ClipViewModel = viewModel()) {
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CrashCard(report: String, onDismiss: () -> Unit) {
+    val clipboard = LocalClipboardManager.current
+    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("ClipPost crashed last time", style = MaterialTheme.typography.titleSmall)
+            // The first lines name the exception and its cause; Copy gives the whole report.
+            Text(
+                report,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                maxLines = 8,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { clipboard.setText(AnnotatedString(report)) }) { Text("Copy report") }
+                TextButton(onClick = onDismiss) { Text("Dismiss") }
             }
         }
     }

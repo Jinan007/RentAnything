@@ -2,6 +2,7 @@ package com.clippost.app.work
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.ListenableWorker.Result
@@ -12,6 +13,7 @@ import com.clippost.app.Privacy
 import com.clippost.app.UploadException
 import com.clippost.app.YouTubeAuth
 import com.clippost.app.YouTubeUploader
+import kotlinx.coroutines.CancellationException
 import java.io.IOException
 
 // Keys used to pass data into the worker and out of it.
@@ -43,8 +45,8 @@ class UploadWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
         val privacy = runCatching { Privacy.valueOf(inputData.getString(KEY_PRIVACY).orEmpty()) }
             .getOrDefault(Privacy.PRIVATE)
 
-        // Required before any long work: this shows the notification and keeps the job alive.
-        setForeground(getForegroundInfo())
+        // Shows the notification and keeps the job alive. If Android refuses, we still try to upload.
+        safeForeground(getForegroundInfo())
 
         val token = when (val auth = YouTubeAuth.authorize(applicationContext)) {
             is AuthResult.Token -> auth.value
@@ -65,7 +67,7 @@ class UploadWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
                 // Update the app and the notification every 5%, not on every chunk.
                 if (percent % 5 == 0 || percent == 100) {
                     setProgress(workDataOf(KEY_PERCENT to percent))
-                    setForeground(Notifications.uploadingInfo(applicationContext, id, title, percent))
+                    safeForeground(Notifications.uploadingInfo(applicationContext, id, title, percent))
                 }
             }
             Notifications.showDone(applicationContext, id, title, videoId)
@@ -75,6 +77,17 @@ class UploadWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
         } catch (e: IOException) {
             // No internet, timeout, dropped connection: try again later.
             retryOrFail("Connection problem. It will retry when the network is back.", retryable = true)
+        }
+    }
+
+    /** Like setForeground, but a refused foreground start doesn't fail the whole upload. */
+    private suspend fun safeForeground(info: ForegroundInfo) {
+        try {
+            setForeground(info)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("ClipPost", "Could not start the foreground notification", e)
         }
     }
 

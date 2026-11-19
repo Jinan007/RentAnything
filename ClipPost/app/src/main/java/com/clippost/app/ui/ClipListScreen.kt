@@ -153,7 +153,7 @@ fun ClipListScreen(viewModel: ClipViewModel = viewModel()) {
                 val appInfo = remember { "Package: ${context.packageName}\nSHA-1: ${context.signingSha1()}" }
                 ConnectCard(state = viewModel.authState, appInfo = appInfo, onConnect = viewModel::connect)
                 QuotaNote(left = Quota.leftToday(viewModel.clips))
-                PostingPlanCard(perDay = viewModel.postsPerDay, onChange = viewModel::setPostsPerDay)
+                PostingPlanCard(perDay = viewModel.postsPerDay, onChange = viewModel::choosePostsPerDay)
 
                 if (queue.isEmpty()) {
                     EmptyMessage("No clips in the queue.\nTap \"Add clips\" to pick videos from your gallery.")

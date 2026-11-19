@@ -185,7 +185,7 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setStyle(id: String, style: VerticalStyle) = edit(id) { it.copy(style = style) }
 
-    fun setPostsPerDay(count: Int) {
+    fun choosePostsPerDay(count: Int) {
         postsPerDay = count.coerceIn(1, PostingPlan.MAX_PER_DAY)
         prefs.edit().putInt("posts_per_day", postsPerDay).apply()
     }

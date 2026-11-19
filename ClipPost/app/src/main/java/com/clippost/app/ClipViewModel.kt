@@ -1,6 +1,8 @@
 package com.clippost.app
 
 import android.app.Application
+import android.app.PendingIntent
+import android.content.Intent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -10,7 +12,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-/** Holds the clips and runs uploads. It survives screen rotation. (Room keeps clips across restarts in step 6.) */
+/** Holds the clips, the YouTube connection and the uploads. It survives screen rotation. */
 class ClipViewModel(app: Application) : AndroidViewModel(app) {
 
     private val uploader = YouTubeUploader(app.contentResolver)
@@ -18,8 +20,52 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
     private val _clips = mutableStateListOf<Clip>()
     val clips: List<Clip> get() = _clips
 
-    /** TEMPORARY: a pasted OAuth access token so we can test uploading. Step 3 replaces it with a Connect button. */
-    var accessToken by mutableStateOf("")
+    // ---- YouTube connection ----------------------------------------------------------------
+
+    var authState by mutableStateOf<AuthState>(AuthState.Disconnected)
+        private set
+
+    /** Set when Google needs the user to approve; the screen launches it and then calls consentRequestHandled(). */
+    var consentRequest by mutableStateOf<PendingIntent?>(null)
+        private set
+
+    init {
+        // If the user already approved earlier, this connects silently. Otherwise we stay "Not connected".
+        viewModelScope.launch {
+            if (YouTubeAuth.authorize(getApplication()) is AuthResult.Token) {
+                authState = AuthState.Connected
+            }
+        }
+    }
+
+    fun connect() {
+        authState = AuthState.Connecting
+        viewModelScope.launch {
+            when (val result = YouTubeAuth.authorize(getApplication())) {
+                is AuthResult.Token -> authState = AuthState.Connected
+                is AuthResult.NeedsConsent -> consentRequest = result.pendingIntent
+                is AuthResult.Failed -> authState = AuthState.Failed(result.message)
+            }
+        }
+    }
+
+    fun consentRequestHandled() {
+        consentRequest = null
+    }
+
+    fun onConsentResult(approved: Boolean, data: Intent?) {
+        if (!approved) {
+            authState = AuthState.Failed("Sign-in was cancelled.")
+            return
+        }
+        authState = when (val result = YouTubeAuth.fromConsentResult(getApplication(), data)) {
+            is AuthResult.Token -> AuthState.Connected
+            is AuthResult.Failed -> AuthState.Failed(result.message)
+            is AuthResult.NeedsConsent -> AuthState.Failed("Google asked for approval again. Please try Connect once more.")
+        }
+    }
+
+    // ---- Clips -----------------------------------------------------------------------------
 
     fun addClips(newClips: List<Clip>) {
         val known = _clips.map { it.uri }.toSet()
@@ -38,16 +84,13 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
         _clips.removeAll { it.id == id }
     }
 
+    // ---- Upload ----------------------------------------------------------------------------
+
     /** Uploads one clip. Progress and the result show up in clip.upload. */
     fun upload(id: String) {
         val clip = _clips.firstOrNull { it.id == id } ?: return
         if (clip.upload is UploadState.Uploading) return
 
-        val token = accessToken.trim()
-        if (token.isEmpty()) {
-            setUpload(id, UploadState.Failed("Paste an access token first."))
-            return
-        }
         if (clip.title.isBlank()) {
             setUpload(id, UploadState.Failed("Please give the clip a title."))
             return
@@ -56,6 +99,16 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
         setUpload(id, UploadState.Uploading(0))
         viewModelScope.launch {
             try {
+                // Ask Google for a fresh token right before uploading (tokens expire after about an hour).
+                val token = when (val auth = YouTubeAuth.authorize(getApplication())) {
+                    is AuthResult.Token -> auth.value
+                    is AuthResult.NeedsConsent -> {
+                        authState = AuthState.Disconnected
+                        throw UploadException("YouTube access was removed. Tap Connect, then try again.")
+                    }
+                    is AuthResult.Failed -> throw UploadException(auth.message)
+                }
+
                 val videoId = uploader.upload(
                     uri = clip.uri,
                     accessToken = token,

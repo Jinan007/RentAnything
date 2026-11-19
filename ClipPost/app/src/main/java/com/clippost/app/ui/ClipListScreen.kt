@@ -1,7 +1,9 @@
 package com.clippost.app.ui
 
+import android.app.Activity
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,14 +31,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.clippost.app.AuthState
 import com.clippost.app.Clip
 import com.clippost.app.ClipViewModel
 import com.clippost.app.MAX_CAPTION
@@ -63,6 +67,21 @@ fun ClipListScreen(viewModel: ClipViewModel = viewModel()) {
         viewModel.addClips(picked)
     }
 
+    // Google's "Allow ClipPost to upload videos?" screen.
+    val consentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        viewModel.onConsentResult(result.resultCode == Activity.RESULT_OK, result.data)
+    }
+    LaunchedEffect(viewModel.consentRequest) {
+        viewModel.consentRequest?.let { pending ->
+            consentLauncher.launch(IntentSenderRequest.Builder(pending.intentSender).build())
+            viewModel.consentRequestHandled()
+        }
+    }
+
+    val connected = viewModel.authState is AuthState.Connected
+
     Scaffold(
         topBar = { TopAppBar(title = { Text("ClipPost") }) },
         floatingActionButton = {
@@ -73,15 +92,7 @@ fun ClipListScreen(viewModel: ClipViewModel = viewModel()) {
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
 
-            // TEMPORARY (removed in step 3): paste an OAuth access token to test uploads.
-            OutlinedTextField(
-                value = viewModel.accessToken,
-                onValueChange = { viewModel.accessToken = it },
-                label = { Text("TEMP: access token (Connect button comes in step 3)") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-            )
+            ConnectCard(state = viewModel.authState, onConnect = viewModel::connect)
 
             if (viewModel.clips.isEmpty()) {
                 Box(
@@ -99,7 +110,7 @@ fun ClipListScreen(viewModel: ClipViewModel = viewModel()) {
                     items(viewModel.clips, key = { it.id }) { clip ->
                         ClipCard(
                             clip = clip,
-                            canUpload = viewModel.accessToken.isNotBlank() && clip.title.isNotBlank(),
+                            canUpload = connected && clip.title.isNotBlank(),
                             onTitleChange = { viewModel.setTitle(clip.id, it) },
                             onCaptionChange = { viewModel.setCaption(clip.id, it) },
                             onPrivacyChange = { viewModel.setPrivacy(clip.id, it) },
@@ -109,6 +120,30 @@ fun ClipListScreen(viewModel: ClipViewModel = viewModel()) {
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectCard(state: AuthState, onConnect: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("YouTube", style = MaterialTheme.typography.titleSmall)
+                when (state) {
+                    AuthState.Connected -> Text("Connected ✓")
+                    AuthState.Connecting -> Text("Connecting…")
+                    AuthState.Disconnected -> Text("Not connected")
+                    is AuthState.Failed -> Text(state.message, color = MaterialTheme.colorScheme.error)
+                }
+            }
+            if (state != AuthState.Connected) {
+                Spacer(Modifier.width(8.dp))
+                Button(onClick = onConnect, enabled = state != AuthState.Connecting) { Text("Connect") }
             }
         }
     }
@@ -190,6 +225,13 @@ private fun ClipCard(
             when (val state = clip.upload) {
                 UploadState.Idle -> {
                     Button(onClick = onUpload, enabled = canUpload) { Text("Upload to YouTube") }
+                    if (!canUpload) {
+                        Text(
+                            "Connect to YouTube first.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                    }
                 }
 
                 is UploadState.Uploading -> {

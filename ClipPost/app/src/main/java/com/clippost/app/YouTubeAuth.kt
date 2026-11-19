@@ -39,6 +39,10 @@ object YouTubeAuth {
 
     private const val UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
 
+    const val CANCELLED_MESSAGE =
+        "Sign-in did not finish. If Google showed \"Access blocked\" or an error, add your Gmail as a " +
+            "Test user in Google Cloud (Google Auth Platform > Audience), then tap Connect again."
+
     private fun request(): AuthorizationRequest =
         AuthorizationRequest.builder()
             .setRequestedScopes(listOf(Scope(UPLOAD_SCOPE)))
@@ -66,7 +70,7 @@ object YouTubeAuth {
 
     /** Reads the answer after the user finished the consent screen. */
     fun fromConsentResult(context: Context, data: Intent?): AuthResult {
-        if (data == null) return AuthResult.Failed("Sign-in was cancelled.")
+        if (data == null) return AuthResult.Failed(CANCELLED_MESSAGE)
         return try {
             val result = Identity.getAuthorizationClient(context.applicationContext)
                 .getAuthorizationResultFromIntent(data)

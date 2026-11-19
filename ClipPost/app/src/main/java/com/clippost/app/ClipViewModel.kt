@@ -55,7 +55,7 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
 
     fun onConsentResult(approved: Boolean, data: Intent?) {
         if (!approved) {
-            authState = AuthState.Failed("Sign-in was cancelled.")
+            authState = AuthState.Failed(YouTubeAuth.CANCELLED_MESSAGE)
             return
         }
         authState = when (val result = YouTubeAuth.fromConsentResult(getApplication(), data)) {

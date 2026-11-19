@@ -8,18 +8,23 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -27,6 +32,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -35,6 +42,7 @@ import com.clippost.app.ClipViewModel
 import com.clippost.app.MAX_CAPTION
 import com.clippost.app.MAX_TITLE
 import com.clippost.app.Privacy
+import com.clippost.app.UploadState
 import com.clippost.app.displayName
 import com.clippost.app.keepReadAccess
 
@@ -63,27 +71,43 @@ fun ClipListScreen(viewModel: ClipViewModel = viewModel()) {
             }
         }
     ) { padding ->
-        if (viewModel.clips.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(32.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("No clips yet.\nTap \"Add clips\" to pick videos from your gallery.")
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 96.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(viewModel.clips, key = { it.id }) { clip ->
-                    ClipCard(
-                        clip = clip,
-                        onTitleChange = { viewModel.setTitle(clip.id, it) },
-                        onCaptionChange = { viewModel.setCaption(clip.id, it) },
-                        onPrivacyChange = { viewModel.setPrivacy(clip.id, it) },
-                        onRemove = { viewModel.remove(clip.id) }
-                    )
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+
+            // TEMPORARY (removed in step 3): paste an OAuth access token to test uploads.
+            OutlinedTextField(
+                value = viewModel.accessToken,
+                onValueChange = { viewModel.accessToken = it },
+                label = { Text("TEMP: access token (Connect button comes in step 3)") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+
+            if (viewModel.clips.isEmpty()) {
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxWidth().padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("No clips yet.\nTap \"Add clips\" to pick videos from your gallery.")
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 96.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(viewModel.clips, key = { it.id }) { clip ->
+                        ClipCard(
+                            clip = clip,
+                            canUpload = viewModel.accessToken.isNotBlank() && clip.title.isNotBlank(),
+                            onTitleChange = { viewModel.setTitle(clip.id, it) },
+                            onCaptionChange = { viewModel.setCaption(clip.id, it) },
+                            onPrivacyChange = { viewModel.setPrivacy(clip.id, it) },
+                            onShortsChange = { viewModel.setAddShorts(clip.id, it) },
+                            onUpload = { viewModel.upload(clip.id) },
+                            onRemove = { viewModel.remove(clip.id) }
+                        )
+                    }
                 }
             }
         }
@@ -93,11 +117,17 @@ fun ClipListScreen(viewModel: ClipViewModel = viewModel()) {
 @Composable
 private fun ClipCard(
     clip: Clip,
+    canUpload: Boolean,
     onTitleChange: (String) -> Unit,
     onCaptionChange: (String) -> Unit,
     onPrivacyChange: (Privacy) -> Unit,
+    onShortsChange: (Boolean) -> Unit,
+    onUpload: () -> Unit,
     onRemove: () -> Unit
 ) {
+    val editable = clip.upload !is UploadState.Uploading
+    val uriHandler = LocalUriHandler.current
+
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -115,7 +145,7 @@ private fun ClipCard(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
-                TextButton(onClick = onRemove) { Text("Remove") }
+                TextButton(onClick = onRemove, enabled = editable) { Text("Remove") }
             }
 
             OutlinedTextField(
@@ -123,6 +153,7 @@ private fun ClipCard(
                 onValueChange = onTitleChange,
                 label = { Text("Title") },
                 singleLine = true,
+                enabled = editable,
                 supportingText = { Text("${clip.title.length}/$MAX_TITLE") },
                 modifier = Modifier.fillMaxWidth()
             )
@@ -133,6 +164,7 @@ private fun ClipCard(
                 label = { Text("Caption") },
                 minLines = 2,
                 maxLines = 5,
+                enabled = editable,
                 supportingText = { Text("${clip.caption.length}/$MAX_CAPTION") },
                 modifier = Modifier.fillMaxWidth()
             )
@@ -143,8 +175,41 @@ private fun ClipCard(
                     FilterChip(
                         selected = clip.privacy == privacy,
                         onClick = { onPrivacyChange(privacy) },
+                        enabled = editable,
                         label = { Text(privacy.label) }
                     )
+                }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = clip.addShorts, onCheckedChange = onShortsChange, enabled = editable)
+                Spacer(Modifier.width(8.dp))
+                Text("Add #Shorts to description")
+            }
+
+            when (val state = clip.upload) {
+                UploadState.Idle -> {
+                    Button(onClick = onUpload, enabled = canUpload) { Text("Upload to YouTube") }
+                }
+
+                is UploadState.Uploading -> {
+                    LinearProgressIndicator(
+                        progress = { state.percent / 100f },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("Uploading… ${state.percent}%")
+                }
+
+                is UploadState.Done -> {
+                    val url = "https://youtu.be/${state.videoId}"
+                    Text("Uploaded ✓", style = MaterialTheme.typography.titleSmall)
+                    Text(url)
+                    TextButton(onClick = { uriHandler.openUri(url) }) { Text("Open on YouTube") }
+                }
+
+                is UploadState.Failed -> {
+                    Text(state.message, color = MaterialTheme.colorScheme.error)
+                    Button(onClick = onUpload, enabled = canUpload) { Text("Retry") }
                 }
             }
         }

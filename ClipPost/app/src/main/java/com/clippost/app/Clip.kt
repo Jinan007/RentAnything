@@ -6,11 +6,19 @@ import java.util.UUID
 const val MAX_TITLE = 100          // YouTube title limit
 const val MAX_CAPTION = 5000       // YouTube description limit (approx.)
 
-/** YouTube's privacyStatus values. We use them again in step 4. */
+/** YouTube's privacyStatus values. */
 enum class Privacy(val label: String, val apiValue: String) {
     PUBLIC("Public", "public"),
     UNLISTED("Unlisted", "unlisted"),
     PRIVATE("Private", "private")
+}
+
+/** Where a clip is in the upload process. */
+sealed interface UploadState {
+    data object Idle : UploadState
+    data class Uploading(val percent: Int) : UploadState
+    data class Done(val videoId: String) : UploadState
+    data class Failed(val message: String) : UploadState
 }
 
 data class Clip(
@@ -19,5 +27,7 @@ data class Clip(
     val fileName: String,
     val title: String,
     val caption: String = "",
-    val privacy: Privacy = Privacy.PRIVATE
+    val privacy: Privacy = Privacy.PRIVATE,
+    val addShorts: Boolean = false,
+    val upload: UploadState = UploadState.Idle
 )

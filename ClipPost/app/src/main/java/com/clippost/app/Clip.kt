@@ -6,6 +6,9 @@ import java.util.UUID
 const val MAX_TITLE = 100          // YouTube title limit
 const val MAX_CAPTION = 5000       // YouTube description limit (approx.)
 
+/** A scheduled publish time must be at least this far in the future. */
+const val MIN_SCHEDULE_LEAD_MILLIS = 15 * 60 * 1000L
+
 /** YouTube's privacyStatus values. */
 enum class Privacy(val label: String, val apiValue: String) {
     PUBLIC("Public", "public"),
@@ -30,5 +33,9 @@ data class Clip(
     val caption: String = "",
     val privacy: Privacy = Privacy.PRIVATE,
     val addShorts: Boolean = false,
-    val upload: UploadState = UploadState.Idle
+    /** If set, the video uploads as Private and YouTube makes it public at this time (epoch milliseconds). */
+    val publishAtMillis: Long? = null,
+    val upload: UploadState = UploadState.Idle,
+    val createdAt: Long = System.currentTimeMillis(),
+    val completedAt: Long? = null
 )

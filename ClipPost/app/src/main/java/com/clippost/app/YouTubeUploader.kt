@@ -11,6 +11,7 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.time.Instant
 
 /**
  * A YouTube error we can explain to the user.
@@ -32,13 +33,14 @@ class YouTubeUploader(private val resolver: ContentResolver) {
         title: String,
         description: String,
         privacy: Privacy,
+        publishAtMillis: Long?,
         onProgress: suspend (Int) -> Unit
     ): String = withContext(Dispatchers.IO) {
         val size = fileSize(uri)
         if (size <= 0) throw UploadException("Could not read the video file. Try adding the clip again.")
         val mime = resolver.getType(uri) ?: "video/*"
 
-        val uploadUrl = startSession(accessToken, title, description, privacy, size, mime)
+        val uploadUrl = startSession(accessToken, title, description, privacy, publishAtMillis, size, mime)
         sendBytes(uploadUrl, uri, size, mime, onProgress)
     }
 
@@ -49,9 +51,19 @@ class YouTubeUploader(private val resolver: ContentResolver) {
         title: String,
         description: String,
         privacy: Privacy,
+        publishAtMillis: Long?,
         size: Long,
         mime: String
     ): String {
+        // A scheduled video must be uploaded as Private; YouTube switches it to public at publishAt.
+        val status = JSONObject()
+            .put("privacyStatus", if (publishAtMillis != null) Privacy.PRIVATE.apiValue else privacy.apiValue)
+            .put("selfDeclaredMadeForKids", false)
+        if (publishAtMillis != null) {
+            // RFC 3339 in UTC, whole seconds, e.g. 2026-11-25T18:30:00Z
+            status.put("publishAt", Instant.ofEpochSecond(publishAtMillis / 1000).toString())
+        }
+
         val body = JSONObject()
             .put(
                 "snippet", JSONObject()
@@ -59,11 +71,7 @@ class YouTubeUploader(private val resolver: ContentResolver) {
                     .put("description", clean(description))
                     .put("categoryId", "22") // "People & Blogs"
             )
-            .put(
-                "status", JSONObject()
-                    .put("privacyStatus", privacy.apiValue)
-                    .put("selfDeclaredMadeForKids", false)
-            )
+            .put("status", status)
             .toString()
 
         val conn = URL(SESSION_URL).openConnection() as HttpURLConnection

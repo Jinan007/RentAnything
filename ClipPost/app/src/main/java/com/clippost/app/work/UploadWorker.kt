@@ -13,14 +13,18 @@ import com.clippost.app.Privacy
 import com.clippost.app.UploadException
 import com.clippost.app.YouTubeAuth
 import com.clippost.app.YouTubeUploader
+import com.clippost.app.data.AppDatabase
+import com.clippost.app.data.ClipStatus
 import kotlinx.coroutines.CancellationException
 import java.io.IOException
 
 // Keys used to pass data into the worker and out of it.
+const val KEY_CLIP_ID = "clipId"
 const val KEY_URI = "uri"
 const val KEY_TITLE = "title"
 const val KEY_DESCRIPTION = "description"
 const val KEY_PRIVACY = "privacy"
+const val KEY_PUBLISH_AT = "publishAt"   // epoch milliseconds, or -1 for "publish now"
 const val KEY_PERCENT = "percent"        // progress, shown while running
 const val KEY_VIDEO_ID = "videoId"       // result, on success
 const val KEY_ERROR = "error"            // reason, on failure
@@ -31,10 +35,14 @@ private const val MAX_ATTEMPTS = 4
 /**
  * Uploads one clip in the background. WorkManager runs this even if the user leaves the app,
  * retries when the network drops, and shows progress in a notification.
+ * It also saves its progress and result in the database, so the history is right
+ * even if the app was closed while the upload finished.
  */
 class UploadWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
 
     private val title: String get() = inputData.getString(KEY_TITLE).orEmpty()
+    private val clipId: String? get() = inputData.getString(KEY_CLIP_ID)
+    private val dao by lazy { AppDatabase.get(applicationContext).clipDao() }
 
     override suspend fun getForegroundInfo(): ForegroundInfo =
         Notifications.uploadingInfo(applicationContext, id, title, 0)
@@ -44,9 +52,11 @@ class UploadWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
             ?: return fail("The video file is missing. Add the clip again.")
         val privacy = runCatching { Privacy.valueOf(inputData.getString(KEY_PRIVACY).orEmpty()) }
             .getOrDefault(Privacy.PRIVATE)
+        val publishAt = inputData.getLong(KEY_PUBLISH_AT, -1L).takeIf { it > 0 }
 
         // Shows the notification and keeps the job alive. If Android refuses, we still try to upload.
         safeForeground(getForegroundInfo())
+        record(ClipStatus.UPLOADING, 0)
 
         val token = when (val auth = YouTubeAuth.authorize(applicationContext)) {
             is AuthResult.Token -> auth.value
@@ -62,14 +72,17 @@ class UploadWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
                 accessToken = token,
                 title = title,
                 description = inputData.getString(KEY_DESCRIPTION).orEmpty(),
-                privacy = privacy
+                privacy = privacy,
+                publishAtMillis = publishAt
             ) { percent ->
                 // Update the app and the notification every 5%, not on every chunk.
                 if (percent % 5 == 0 || percent == 100) {
                     setProgress(workDataOf(KEY_PERCENT to percent))
+                    record(ClipStatus.UPLOADING, percent)
                     safeForeground(Notifications.uploadingInfo(applicationContext, id, title, percent))
                 }
             }
+            record(ClipStatus.DONE, 100, videoId = videoId, completedAt = System.currentTimeMillis())
             Notifications.showDone(applicationContext, id, title, videoId)
             Result.success(workDataOf(KEY_VIDEO_ID to videoId))
         } catch (e: UploadException) {
@@ -91,14 +104,34 @@ class UploadWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
         }
     }
 
-    private fun retryOrFail(message: String, retryable: Boolean): Result =
+    /** Saves the clip's upload status in the database (no-op if the clip was removed). */
+    private suspend fun record(
+        status: String,
+        percent: Int = 0,
+        videoId: String? = null,
+        error: String? = null,
+        completedAt: Long? = null
+    ) {
+        val clip = clipId ?: return
+        try {
+            dao.updateStatus(clip, status, percent, videoId, error, completedAt)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("ClipPost", "Could not save the upload status", e)
+        }
+    }
+
+    private suspend fun retryOrFail(message: String, retryable: Boolean): Result =
         if (retryable && runAttemptCount < MAX_ATTEMPTS - 1) {
+            record(ClipStatus.QUEUED, 0)
             Result.retry()
         } else {
             fail(message)
         }
 
-    private fun fail(message: String): Result {
+    private suspend fun fail(message: String): Result {
+        record(ClipStatus.FAILED, 0, error = message)
         Notifications.showFailed(applicationContext, id, title, message)
         return Result.failure(workDataOf(KEY_ERROR to message))
     }

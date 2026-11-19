@@ -27,16 +27,20 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -100,62 +104,98 @@ fun ClipListScreen(viewModel: ClipViewModel = viewModel()) {
         }
     }
 
+    var tab by rememberSaveable { mutableIntStateOf(0) }       // 0 = Queue, 1 = History
+    val queue = viewModel.clips.filter { it.upload !is UploadState.Done }
+    val history = viewModel.clips
+        .filter { it.upload is UploadState.Done }
+        .sortedByDescending { it.completedAt ?: it.createdAt }
     val connected = viewModel.authState is AuthState.Connected
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("ClipPost") }) },
+        topBar = {
+            Column {
+                TopAppBar(title = { Text("ClipPost") })
+                PrimaryTabRow(selectedTabIndex = tab) {
+                    Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Queue (${queue.size})") })
+                    Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("History (${history.size})") })
+                }
+            }
+        },
         floatingActionButton = {
-            ExtendedFloatingActionButton(onClick = { picker.launch(arrayOf("video/*")) }) {
-                Text("Add clips")
+            if (tab == 0) {
+                ExtendedFloatingActionButton(onClick = { picker.launch(arrayOf("video/*")) }) {
+                    Text("Add clips")
+                }
             }
         }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            if (tab == 0) {
+                // If the app crashed last time, show why (and let the user copy it).
+                var crash by remember { mutableStateOf(CrashReporter.lastCrash(context)) }
+                crash?.let { report ->
+                    CrashCard(
+                        report = report,
+                        onDismiss = {
+                            CrashReporter.clear(context)
+                            crash = null
+                        }
+                    )
+                }
 
-            // If the app crashed last time, show why (and let the user copy it).
-            var crash by remember { mutableStateOf(CrashReporter.lastCrash(context)) }
-            crash?.let { report ->
-                CrashCard(
-                    report = report,
-                    onDismiss = {
-                        CrashReporter.clear(context)
-                        crash = null
+                val appInfo = remember { "Package: ${context.packageName}\nSHA-1: ${context.signingSha1()}" }
+                ConnectCard(state = viewModel.authState, appInfo = appInfo, onConnect = viewModel::connect)
+
+                if (queue.isEmpty()) {
+                    EmptyMessage("No clips in the queue.\nTap \"Add clips\" to pick videos from your gallery.")
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 96.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(queue, key = { it.id }) { clip ->
+                            ClipCard(
+                                clip = clip,
+                                canUpload = connected && clip.title.isNotBlank(),
+                                onTitleChange = { viewModel.setTitle(clip.id, it) },
+                                onCaptionChange = { viewModel.setCaption(clip.id, it) },
+                                onPrivacyChange = { viewModel.setPrivacy(clip.id, it) },
+                                onShortsChange = { viewModel.setAddShorts(clip.id, it) },
+                                onScheduleChange = { viewModel.setPublishAt(clip.id, it) },
+                                onUpload = { viewModel.upload(clip.id) },
+                                onCancel = { viewModel.cancel(clip.id) },
+                                onRemove = { viewModel.remove(clip.id) }
+                            )
+                        }
                     }
-                )
-            }
-
-            val appInfo = remember { "Package: ${context.packageName}\nSHA-1: ${context.signingSha1()}" }
-            ConnectCard(state = viewModel.authState, appInfo = appInfo, onConnect = viewModel::connect)
-
-            if (viewModel.clips.isEmpty()) {
-                Box(
-                    modifier = Modifier.weight(1f).fillMaxWidth().padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("No clips yet.\nTap \"Add clips\" to pick videos from your gallery.")
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 96.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(viewModel.clips, key = { it.id }) { clip ->
-                        ClipCard(
-                            clip = clip,
-                            canUpload = connected && clip.title.isNotBlank(),
-                            onTitleChange = { viewModel.setTitle(clip.id, it) },
-                            onCaptionChange = { viewModel.setCaption(clip.id, it) },
-                            onPrivacyChange = { viewModel.setPrivacy(clip.id, it) },
-                            onShortsChange = { viewModel.setAddShorts(clip.id, it) },
-                            onUpload = { viewModel.upload(clip.id) },
-                            onCancel = { viewModel.cancel(clip.id) },
-                            onRemove = { viewModel.remove(clip.id) }
-                        )
+                if (history.isEmpty()) {
+                    EmptyMessage("No uploads yet.\nVideos you upload will be listed here.")
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(history, key = { it.id }) { clip ->
+                            HistoryCard(clip = clip, onRemove = { viewModel.remove(clip.id) })
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun androidx.compose.foundation.layout.ColumnScope.EmptyMessage(text: String) {
+    Box(
+        modifier = Modifier.weight(1f).fillMaxWidth().padding(32.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text)
     }
 }
 
@@ -216,6 +256,7 @@ private fun ClipCard(
     onCaptionChange: (String) -> Unit,
     onPrivacyChange: (Privacy) -> Unit,
     onShortsChange: (Boolean) -> Unit,
+    onScheduleChange: (Long?) -> Unit,
     onUpload: () -> Unit,
     onCancel: () -> Unit,
     onRemove: () -> Unit
@@ -223,7 +264,8 @@ private fun ClipCard(
     // Fields are locked while an upload is queued or running.
     val busy = clip.upload is UploadState.Uploading || clip.upload is UploadState.Queued
     val editable = !busy
-    val uriHandler = LocalUriHandler.current
+    val scheduledAt = clip.publishAtMillis
+    var showSchedule by remember { mutableStateOf(false) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -272,10 +314,31 @@ private fun ClipCard(
                     FilterChip(
                         selected = clip.privacy == privacy,
                         onClick = { onPrivacyChange(privacy) },
-                        enabled = editable,
+                        // A scheduled video is always uploaded as Private and goes public at its time.
+                        enabled = editable && scheduledAt == null,
                         label = { Text(privacy.label) }
                     )
                 }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = scheduledAt != null,
+                    onCheckedChange = { on -> if (on) showSchedule = true else onScheduleChange(null) },
+                    enabled = editable
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(if (scheduledAt != null) "Goes public: ${formatTime(scheduledAt)}" else "Schedule publishing")
+            }
+            if (scheduledAt != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { showSchedule = true }, enabled = editable) { Text("Change time") }
+                }
+                Text(
+                    "Uploads as Private, then YouTube makes it public at that time.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -286,7 +349,9 @@ private fun ClipCard(
 
             when (val state = clip.upload) {
                 UploadState.Idle -> {
-                    Button(onClick = onUpload, enabled = canUpload) { Text("Upload to YouTube") }
+                    Button(onClick = onUpload, enabled = canUpload) {
+                        Text(if (scheduledAt != null) "Upload and schedule" else "Upload to YouTube")
+                    }
                     if (!canUpload) {
                         Text(
                             "Connect to YouTube first.",
@@ -311,16 +376,53 @@ private fun ClipCard(
                 }
 
                 is UploadState.Done -> {
-                    val url = "https://youtu.be/${state.videoId}"
+                    // Done clips move to the History tab; this only shows for a moment.
                     Text("Uploaded ✓", style = MaterialTheme.typography.titleSmall)
-                    Text(url)
-                    TextButton(onClick = { uriHandler.openUri(url) }) { Text("Open on YouTube") }
                 }
 
                 is UploadState.Failed -> {
                     Text(state.message, color = MaterialTheme.colorScheme.error)
                     Button(onClick = onUpload, enabled = canUpload) { Text("Retry") }
                 }
+            }
+        }
+    }
+
+    if (showSchedule) {
+        ScheduleDialog(
+            initialMillis = scheduledAt,
+            onConfirm = {
+                onScheduleChange(it)
+                showSchedule = false
+            },
+            onDismiss = { showSchedule = false }
+        )
+    }
+}
+
+@Composable
+private fun HistoryCard(clip: Clip, onRemove: () -> Unit) {
+    val uriHandler = LocalUriHandler.current
+    val videoId = (clip.upload as? UploadState.Done)?.videoId.orEmpty()
+    val url = "https://youtu.be/$videoId"
+    val scheduledAt = clip.publishAtMillis
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(clip.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            clip.completedAt?.let { Text("Uploaded ${formatTime(it)}", style = MaterialTheme.typography.bodySmall) }
+            Text(
+                if (scheduledAt != null) "Scheduled to go public: ${formatTime(scheduledAt)}"
+                else "Visibility: ${clip.privacy.label}",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(url, style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { uriHandler.openUri(url) }) { Text("Open on YouTube") }
+                TextButton(onClick = onRemove) { Text("Remove from list") }
             }
         }
     }

@@ -1,7 +1,9 @@
 package com.clippost.app.ui
 
+import android.Manifest
 import android.app.Activity
 import android.net.Uri
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -82,6 +84,16 @@ fun ClipListScreen(viewModel: ClipViewModel = viewModel()) {
         }
     }
 
+    // Android 13+ needs permission to show notifications. Ask once, when the screen opens.
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* the uploads work either way; without it you just don't get notifications */ }
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= 33) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     val connected = viewModel.authState is AuthState.Connected
 
     Scaffold(
@@ -119,6 +131,7 @@ fun ClipListScreen(viewModel: ClipViewModel = viewModel()) {
                             onPrivacyChange = { viewModel.setPrivacy(clip.id, it) },
                             onShortsChange = { viewModel.setAddShorts(clip.id, it) },
                             onUpload = { viewModel.upload(clip.id) },
+                            onCancel = { viewModel.cancel(clip.id) },
                             onRemove = { viewModel.remove(clip.id) }
                         )
                     }
@@ -164,9 +177,12 @@ private fun ClipCard(
     onPrivacyChange: (Privacy) -> Unit,
     onShortsChange: (Boolean) -> Unit,
     onUpload: () -> Unit,
+    onCancel: () -> Unit,
     onRemove: () -> Unit
 ) {
-    val editable = clip.upload !is UploadState.Uploading
+    // Fields are locked while an upload is queued or running.
+    val busy = clip.upload is UploadState.Uploading || clip.upload is UploadState.Queued
+    val editable = !busy
     val uriHandler = LocalUriHandler.current
 
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -240,12 +256,18 @@ private fun ClipCard(
                     }
                 }
 
+                UploadState.Queued -> {
+                    Text("Waiting to start… (it will wait for internet if needed)")
+                    TextButton(onClick = onCancel) { Text("Cancel") }
+                }
+
                 is UploadState.Uploading -> {
                     LinearProgressIndicator(
                         progress = { state.percent / 100f },
                         modifier = Modifier.fillMaxWidth()
                     )
                     Text("Uploading… ${state.percent}%")
+                    TextButton(onClick = onCancel) { Text("Cancel") }
                 }
 
                 is UploadState.Done -> {

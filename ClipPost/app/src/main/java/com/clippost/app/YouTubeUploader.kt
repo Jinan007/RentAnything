@@ -12,8 +12,12 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 
-/** An upload problem with a message that is safe to show to the user. */
-class UploadException(message: String) : IOException(message)
+/**
+ * A YouTube error we can explain to the user.
+ * retryable = true  -> trying again later may work (server errors, timeouts).
+ * retryable = false -> the same request will fail again (bad token, quota used up, rejected content).
+ */
+class UploadException(message: String, val retryable: Boolean = false) : IOException(message)
 
 /**
  * Uploads one video with the YouTube Data API v3 (videos.insert, resumable protocol):
@@ -28,7 +32,7 @@ class YouTubeUploader(private val resolver: ContentResolver) {
         title: String,
         description: String,
         privacy: Privacy,
-        onProgress: (Int) -> Unit
+        onProgress: suspend (Int) -> Unit
     ): String = withContext(Dispatchers.IO) {
         val size = fileSize(uri)
         if (size <= 0) throw UploadException("Could not read the video file. Try adding the clip again.")
@@ -74,9 +78,9 @@ class YouTubeUploader(private val resolver: ContentResolver) {
             conn.setRequestProperty("X-Upload-Content-Type", mime)
             conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
 
-            if (conn.responseCode != 200) throw UploadException(describeError(conn))
+            if (conn.responseCode != 200) throw errorFrom(conn)
             return conn.getHeaderField("Location")
-                ?: throw UploadException("YouTube did not return an upload address.")
+                ?: throw UploadException("YouTube did not return an upload address.", retryable = true)
         } finally {
             conn.disconnect()
         }
@@ -89,7 +93,7 @@ class YouTubeUploader(private val resolver: ContentResolver) {
         uri: Uri,
         size: Long,
         mime: String,
-        onProgress: (Int) -> Unit
+        onProgress: suspend (Int) -> Unit
     ): String {
         val conn = URL(uploadUrl).openConnection() as HttpURLConnection
         try {
@@ -123,7 +127,7 @@ class YouTubeUploader(private val resolver: ContentResolver) {
             }
 
             val code = conn.responseCode
-            if (code != 200 && code != 201) throw UploadException(describeError(conn))
+            if (code != 200 && code != 201) throw errorFrom(conn)
             val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
             return json.optString("id").ifEmpty {
                 throw UploadException("YouTube accepted the upload but returned no video id.")
@@ -148,22 +152,23 @@ class YouTubeUploader(private val resolver: ContentResolver) {
     /** YouTube rejects "<" and ">" in titles and descriptions. */
     private fun clean(text: String) = text.replace("<", "").replace(">", "")
 
-    /** Turns YouTube's error JSON into one readable line. Step 7 adds friendly help for common cases. */
-    private fun describeError(conn: HttpURLConnection): String {
+    /** Turns YouTube's error JSON into one readable line. Server errors (5xx) and timeouts can be retried. */
+    private fun errorFrom(conn: HttpURLConnection): UploadException {
         val code = conn.responseCode
         val text = try {
             conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
         } catch (_: IOException) {
             ""
         }
-        return try {
+        val message = try {
             val error = JSONObject(text).getJSONObject("error")
             val reason = error.optJSONArray("errors")?.optJSONObject(0)?.optString("reason").orEmpty()
-            val message = error.optString("message")
-            "YouTube error $code" + (if (reason.isNotEmpty()) " ($reason)" else "") + ": $message"
+            val detail = error.optString("message")
+            "YouTube error $code" + (if (reason.isNotEmpty()) " ($reason)" else "") + ": $detail"
         } catch (_: Exception) {
             "YouTube error $code"
         }
+        return UploadException(message, retryable = code == 408 || code >= 500)
     }
 
     private companion object {

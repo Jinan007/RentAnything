@@ -9,13 +9,33 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.CancellationException
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import androidx.work.workDataOf
+import com.clippost.app.work.KEY_DESCRIPTION
+import com.clippost.app.work.KEY_ERROR
+import com.clippost.app.work.KEY_PERCENT
+import com.clippost.app.work.KEY_PRIVACY
+import com.clippost.app.work.KEY_TITLE
+import com.clippost.app.work.KEY_URI
+import com.clippost.app.work.KEY_VIDEO_ID
+import com.clippost.app.work.TAG_UPLOAD
+import com.clippost.app.work.UploadWorker
 import kotlinx.coroutines.launch
+import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 /** Holds the clips, the YouTube connection and the uploads. It survives screen rotation. */
 class ClipViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val uploader = YouTubeUploader(app.contentResolver)
+    private val workManager = WorkManager.getInstance(app)
+
+    /** clip id -> the WorkManager job uploading it (so we can watch and cancel it). */
+    private val workIds = mutableMapOf<String, UUID>()
 
     private val _clips = mutableStateListOf<Clip>()
     val clips: List<Clip> get() = _clips
@@ -81,49 +101,63 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
     fun setAddShorts(id: String, addShorts: Boolean) = change(id) { it.copy(addShorts = addShorts) }
 
     fun remove(id: String) {
+        cancel(id)
         _clips.removeAll { it.id == id }
     }
 
-    // ---- Upload ----------------------------------------------------------------------------
+    // ---- Upload (runs in the background via WorkManager) -----------------------------------
 
-    /** Uploads one clip. Progress and the result show up in clip.upload. */
+    /** Queues one clip for upload. The job keeps running even if the app is closed. */
     fun upload(id: String) {
         val clip = _clips.firstOrNull { it.id == id } ?: return
-        if (clip.upload is UploadState.Uploading) return
+        if (clip.upload is UploadState.Uploading || clip.upload is UploadState.Queued) return
 
         if (clip.title.isBlank()) {
             setUpload(id, UploadState.Failed("Please give the clip a title."))
             return
         }
 
-        setUpload(id, UploadState.Uploading(0))
-        viewModelScope.launch {
-            try {
-                // Ask Google for a fresh token right before uploading (tokens expire after about an hour).
-                val token = when (val auth = YouTubeAuth.authorize(getApplication())) {
-                    is AuthResult.Token -> auth.value
-                    is AuthResult.NeedsConsent -> {
-                        authState = AuthState.Disconnected
-                        throw UploadException("YouTube access was removed. Tap Connect, then try again.")
-                    }
-                    is AuthResult.Failed -> throw UploadException(auth.message)
-                }
+        // Upload data goes in as plain text and a URI string; the worker reads it back.
+        val request = OneTimeWorkRequestBuilder<UploadWorker>()
+            .setInputData(
+                workDataOf(
+                    KEY_URI to clip.uri.toString(),
+                    KEY_TITLE to clip.title.trim(),
+                    KEY_DESCRIPTION to buildDescription(clip),
+                    KEY_PRIVACY to clip.privacy.name
+                )
+            )
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .addTag(TAG_UPLOAD)
+            .build()
 
-                val videoId = uploader.upload(
-                    uri = clip.uri,
-                    accessToken = token,
-                    title = clip.title.trim(),
-                    description = buildDescription(clip),
-                    privacy = clip.privacy
-                ) { percent ->
-                    // Called on a background thread; hop back to the main thread to update the UI state.
-                    viewModelScope.launch { setProgress(id, percent) }
+        workIds[id] = request.id
+        workManager.enqueue(request)
+        setUpload(id, UploadState.Queued)
+        watch(id, request.id)
+    }
+
+    /** Stops an upload that is queued or running. */
+    fun cancel(id: String) {
+        workIds[id]?.let { workManager.cancelWorkById(it) }
+    }
+
+    /** Copies WorkManager's status for one job into the clip, so the card always matches reality. */
+    private fun watch(clipId: String, workId: UUID) {
+        viewModelScope.launch {
+            workManager.getWorkInfoByIdFlow(workId).collect { info: WorkInfo? ->
+                if (info == null) return@collect
+                val state = when (info.state) {
+                    WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> UploadState.Queued
+                    WorkInfo.State.RUNNING -> UploadState.Uploading(info.progress.getInt(KEY_PERCENT, 0))
+                    WorkInfo.State.SUCCEEDED ->
+                        UploadState.Done(info.outputData.getString(KEY_VIDEO_ID).orEmpty())
+                    WorkInfo.State.FAILED ->
+                        UploadState.Failed(info.outputData.getString(KEY_ERROR) ?: "Upload failed.")
+                    WorkInfo.State.CANCELLED -> UploadState.Failed("Upload cancelled.")
                 }
-                setUpload(id, UploadState.Done(videoId))
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                setUpload(id, UploadState.Failed(e.message ?: "Upload failed."))
+                setUpload(clipId, state)
             }
         }
     }
@@ -135,13 +169,6 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
             !clip.addShorts || text.contains("#shorts", ignoreCase = true) -> text
             text.isEmpty() -> "#Shorts"
             else -> "$text\n\n#Shorts"
-        }
-    }
-
-    private fun setProgress(id: String, percent: Int) {
-        // Ignore late progress updates that arrive after the upload already finished or failed.
-        if (_clips.firstOrNull { it.id == id }?.upload is UploadState.Uploading) {
-            setUpload(id, UploadState.Uploading(percent))
         }
     }
 

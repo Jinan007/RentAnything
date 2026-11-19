@@ -16,6 +16,7 @@ enum class Privacy(val label: String, val apiValue: String) {
 /** Where a clip is in the upload process. */
 sealed interface UploadState {
     data object Idle : UploadState
+    data object Queued : UploadState                  // waiting for the network or a free worker
     data class Uploading(val percent: Int) : UploadState
     data class Done(val videoId: String) : UploadState
     data class Failed(val message: String) : UploadState

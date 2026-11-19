@@ -26,6 +26,10 @@ import com.clippost.app.work.KEY_CLIP_ID
 import com.clippost.app.work.KEY_DESCRIPTION
 import com.clippost.app.work.KEY_ERROR
 import com.clippost.app.work.KEY_FACECAM
+import com.clippost.app.work.KEY_ADD_SHORTS
+import com.clippost.app.work.KEY_AUTO_META
+import com.clippost.app.work.KEY_AUTO_TITLE
+import com.clippost.app.work.KEY_FILE_NAME
 import com.clippost.app.work.KEY_PERCENT
 import com.clippost.app.work.KEY_PRIVACY
 import com.clippost.app.work.KEY_PUBLISH_AT
@@ -166,6 +170,8 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setTopText(id: String, text: String) = edit(id) { it.copy(topText = text.take(MAX_TITLE)) }
 
+    fun setAutoMeta(id: String, autoMeta: Boolean) = edit(id) { it.copy(autoMeta = autoMeta) }
+
     /** Schedules publishing (or clears the schedule with null). Scheduled videos are always Private until then. */
     fun setPublishAt(id: String, millis: Long?) = edit(id) {
         it.copy(publishAtMillis = millis, privacy = if (millis != null) Privacy.PRIVATE else it.privacy)
@@ -206,7 +212,13 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
                     KEY_CLIP_ID to clip.id,
                     KEY_URI to clip.uri.toString(),
                     KEY_TITLE to clip.title.trim(),
-                    KEY_DESCRIPTION to buildDescription(clip),
+                    KEY_DESCRIPTION to clip.caption.trim(),
+                    KEY_ADD_SHORTS to clip.addShorts,
+                    KEY_AUTO_META to clip.autoMeta,
+                    // Only replace the title when the user never typed one (it still has the file-name default).
+                    KEY_AUTO_TITLE to (clip.autoMeta &&
+                        clip.title == clip.fileName.substringBeforeLast('.').take(MAX_TITLE)),
+                    KEY_FILE_NAME to clip.fileName,
                     KEY_PRIVACY to clip.privacy.name,
                     KEY_PUBLISH_AT to (publishAt ?: -1L),
                     KEY_CAPTIONS to clip.captions,
@@ -229,7 +241,7 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
             withContext(Dispatchers.IO) {
                 dao.updateEdits(
                     clip.id, clip.title, clip.caption, clip.privacy.name,
-                    clip.addShorts, clip.captions, clip.vertical, clip.facecam.name, clip.topText,
+                    clip.addShorts, clip.captions, clip.vertical, clip.facecam.name, clip.topText, clip.autoMeta,
                     clip.publishAtMillis
                 )
                 dao.setWorkId(clip.id, request.id.toString())
@@ -273,15 +285,6 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** The caption, plus #Shorts at the end if the switch is on. */
-    private fun buildDescription(clip: Clip): String {
-        val text = clip.caption.trim()
-        return when {
-            !clip.addShorts || text.contains("#shorts", ignoreCase = true) -> text
-            text.isEmpty() -> "#Shorts"
-            else -> "$text\n\n#Shorts"
-        }
-    }
 
     // ---- Helpers ---------------------------------------------------------------------------
 
@@ -305,7 +308,7 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
             withContext(Dispatchers.IO) {
                 dao.updateEdits(
                     clip.id, clip.title, clip.caption, clip.privacy.name,
-                    clip.addShorts, clip.captions, clip.vertical, clip.facecam.name, clip.topText,
+                    clip.addShorts, clip.captions, clip.vertical, clip.facecam.name, clip.topText, clip.autoMeta,
                     clip.publishAtMillis
                 )
             }

@@ -172,6 +172,7 @@ fun ClipListScreen(viewModel: ClipViewModel = viewModel()) {
                                 onVerticalChange = { viewModel.setVertical(clip.id, it) },
                                 onFacecamChange = { viewModel.setFacecam(clip.id, it) },
                                 onTopTextChange = { viewModel.setTopText(clip.id, it) },
+                                onAutoMetaChange = { viewModel.setAutoMeta(clip.id, it) },
                                 onScheduleChange = { viewModel.setPublishAt(clip.id, it) },
                                 onUpload = { viewModel.upload(clip.id) },
                                 onCancel = { viewModel.cancel(clip.id) },
@@ -287,6 +288,7 @@ private fun ClipCard(
     onVerticalChange: (Boolean) -> Unit,
     onFacecamChange: (FacecamRegion) -> Unit,
     onTopTextChange: (String) -> Unit,
+    onAutoMetaChange: (Boolean) -> Unit,
     onScheduleChange: (Long?) -> Unit,
     onUpload: () -> Unit,
     onCancel: () -> Unit,
@@ -388,6 +390,21 @@ private fun ClipCard(
                 Text(
                     "Speech is turned into text on your phone and drawn onto the video. English only. " +
                         "The first time it downloads a speech model (about 40 MB). Takes extra time.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = clip.autoMeta, onCheckedChange = onAutoMetaChange, enabled = editable)
+                Spacer(Modifier.width(8.dp))
+                Text("Auto title, caption, tags and comment")
+            }
+            if (clip.autoMeta) {
+                Text(
+                    "Written on your phone from the speech and the file name. Anything you type yourself " +
+                        "is kept. The first time, it downloads the speech model (about 40 MB). The comment is " +
+                        "posted on your video after upload. Pin it yourself in YouTube Studio.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray
                 )

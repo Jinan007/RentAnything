@@ -33,6 +33,7 @@ data class ClipEntity(
     @ColumnInfo(defaultValue = "0") val vertical: Boolean,
     @ColumnInfo(defaultValue = "'TOP_RIGHT'") val facecam: String,
     @ColumnInfo(defaultValue = "''") val topText: String,
+    @ColumnInfo(defaultValue = "0") val autoMeta: Boolean,
     val publishAtMillis: Long?,
     val status: String,
     val percent: Int,
@@ -56,6 +57,7 @@ fun Clip.toEntity(workId: String? = null): ClipEntity = ClipEntity(
     vertical = vertical,
     facecam = facecam.name,
     topText = topText,
+    autoMeta = autoMeta,
     publishAtMillis = publishAtMillis,
     status = when (upload) {
         UploadState.Idle -> ClipStatus.IDLE
@@ -94,6 +96,7 @@ fun ClipEntity.toClip(): Clip = Clip(
     vertical = vertical,
     facecam = runCatching { FacecamRegion.valueOf(facecam) }.getOrDefault(FacecamRegion.TOP_RIGHT),
     topText = topText,
+    autoMeta = autoMeta,
     publishAtMillis = publishAtMillis,
     upload = when (status) {
         ClipStatus.QUEUED -> UploadState.Queued

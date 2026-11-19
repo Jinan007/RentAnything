@@ -45,6 +45,8 @@ data class Clip(
     val facecam: FacecamRegion = FacecamRegion.TOP_RIGHT,
     /** The text box on the split line. Empty means "use the title". */
     val topText: String = "",
+    /** Write the title, caption, tags and a comment automatically from the speech and file name. */
+    val autoMeta: Boolean = false,
     /** If set, the video uploads as Private and YouTube makes it public at this time (epoch milliseconds). */
     val publishAtMillis: Long? = null,
     val upload: UploadState = UploadState.Idle,

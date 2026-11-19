@@ -9,48 +9,45 @@ import java.io.IOException
 data class CaptionResult(val file: File?, val note: String?)
 
 /**
- * Prepares the video before upload. Two optional jobs, which can be combined:
- *  - captions: get the speech model, find the words, draw them on the video
- *  - vertical: rebuild the landscape clip as a 1080 x 1920 split-screen (face cam on top, gameplay below)
+ * The on-device steps behind captions, the vertical layout and the automatic text.
+ *  - transcribe: speech to words (needs the speech model, downloaded once)
+ *  - edit: draw captions and/or the vertical layout onto a copy of the video
  */
 object CaptionPipeline {
 
+    /** Downloads the speech model if needed, then returns every spoken word with its time. */
+    suspend fun transcribe(
+        context: Context,
+        source: Uri,
+        onStage: suspend (String, Int) -> Unit
+    ): List<Word> {
+        if (!VoskModel.isReady(context)) onStage(STAGE_MODEL, 0)
+        val modelDir = VoskModel.ensure(context) { onStage(STAGE_MODEL, it) }
+        onStage(STAGE_LISTEN, 0)
+        return Transcriber.transcribe(context, source, modelDir) { onStage(STAGE_LISTEN, it) }
+    }
+
     /**
      * @param output where the edited video should end up
+     * @param words the spoken words from [transcribe] (may be empty)
      * @param captions draw word-by-word captions
      * @param vertical if not null, build the vertical split-screen version
-     * @param onStage called with a short description and a percentage (0-100) for each stage
      */
-    suspend fun run(
+    suspend fun edit(
         context: Context,
         source: Uri,
         output: File,
+        words: List<Word>,
         captions: Boolean,
         vertical: VerticalSpec?,
         onStage: suspend (String, Int) -> Unit
     ): CaptionResult {
-        var lines = emptyList<CaptionLine>()
-        var note: String? = null
-
-        if (captions) {
-            // 1. The speech model (downloaded once, about 40 MB).
-            if (!VoskModel.isReady(context)) onStage(STAGE_MODEL, 0)
-            val modelDir = VoskModel.ensure(context) { onStage(STAGE_MODEL, it) }
-
-            // 2. Speech to text, with the time of every word.
-            onStage(STAGE_LISTEN, 0)
-            val words = Transcriber.transcribe(context, source, modelDir) { onStage(STAGE_LISTEN, it) }
-            if (words.isEmpty()) {
-                note = "No speech was found, so the video has no captions."
-            } else {
-                lines = CaptionBuilder.group(words)
-            }
-        }
+        val lines = if (captions) CaptionBuilder.group(words) else emptyList()
+        val note = if (captions && words.isEmpty()) "No speech was found, so the video has no captions." else null
 
         // Nothing to draw and no vertical edit asked for: upload the original as it is.
         if (vertical == null && lines.isEmpty()) return CaptionResult(null, note)
 
-        // 3. Draw onto a copy of the video.
         val partial = File(output.path + ".part")
         try {
             if (vertical != null) {

@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -37,6 +38,7 @@ class YouTubeUploader(private val resolver: ContentResolver) {
         description: String,
         privacy: Privacy,
         publishAtMillis: Long?,
+        tags: List<String> = emptyList(),
         onProgress: suspend (Int) -> Unit
     ): UploadResult = withContext(Dispatchers.IO) {
         val size = fileSize(uri)
@@ -44,7 +46,7 @@ class YouTubeUploader(private val resolver: ContentResolver) {
         // Gallery videos report their type; our own captioned copy (a plain file) is always MP4.
         val mime = resolver.getType(uri) ?: "video/mp4"
 
-        val uploadUrl = startSession(accessToken, title, description, privacy, publishAtMillis, size, mime)
+        val uploadUrl = startSession(accessToken, title, description, privacy, publishAtMillis, tags, size, mime)
         sendBytes(uploadUrl, uri, size, mime, privacy, publishAtMillis, onProgress)
     }
 
@@ -56,6 +58,7 @@ class YouTubeUploader(private val resolver: ContentResolver) {
         description: String,
         privacy: Privacy,
         publishAtMillis: Long?,
+        tags: List<String>,
         size: Long,
         mime: String
     ): String {
@@ -74,6 +77,7 @@ class YouTubeUploader(private val resolver: ContentResolver) {
                     .put("title", clean(title))
                     .put("description", clean(description))
                     .put("categoryId", "22") // "People & Blogs"
+                    .put("tags", JSONArray(tags.map { clean(it) }.filter { it.isNotBlank() }.take(15)))
             )
             .put("status", status)
             .toString()

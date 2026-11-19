@@ -39,13 +39,16 @@ object YouTubeAuth {
 
     private const val UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
 
+    /** Lets ClipPost post a comment on your own video (step 9b). */
+    private const val COMMENT_SCOPE = "https://www.googleapis.com/auth/youtube.force-ssl"
+
     const val CANCELLED_MESSAGE =
         "Sign-in did not finish. If Google showed \"Access blocked\" or an error, add your Gmail as a " +
             "Test user in Google Cloud (Google Auth Platform > Audience), then tap Connect again."
 
     private fun request(): AuthorizationRequest =
         AuthorizationRequest.builder()
-            .setRequestedScopes(listOf(Scope(UPLOAD_SCOPE)))
+            .setRequestedScopes(listOf(Scope(UPLOAD_SCOPE), Scope(COMMENT_SCOPE)))
             .build()
 
     /**

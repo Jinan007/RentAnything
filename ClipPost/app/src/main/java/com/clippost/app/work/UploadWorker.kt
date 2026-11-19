@@ -27,6 +27,7 @@ const val KEY_PRIVACY = "privacy"
 const val KEY_PUBLISH_AT = "publishAt"   // epoch milliseconds, or -1 for "publish now"
 const val KEY_PERCENT = "percent"        // progress, shown while running
 const val KEY_VIDEO_ID = "videoId"       // result, on success
+const val KEY_WARNING = "warning"        // result, on success: something to tell the user (optional)
 const val KEY_ERROR = "error"            // reason, on failure
 const val TAG_UPLOAD = "clippost_upload"
 
@@ -67,7 +68,7 @@ class UploadWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
         }
 
         return try {
-            val videoId = YouTubeUploader(applicationContext.contentResolver).upload(
+            val uploaded = YouTubeUploader(applicationContext.contentResolver).upload(
                 uri = Uri.parse(uriString),
                 accessToken = token,
                 title = title,
@@ -82,9 +83,19 @@ class UploadWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
                     safeForeground(Notifications.uploadingInfo(applicationContext, id, title, percent))
                 }
             }
-            record(ClipStatus.DONE, 100, videoId = videoId, completedAt = System.currentTimeMillis())
-            Notifications.showDone(applicationContext, id, title, videoId)
-            Result.success(workDataOf(KEY_VIDEO_ID to videoId))
+            record(
+                ClipStatus.DONE, 100,
+                videoId = uploaded.videoId,
+                error = uploaded.warning,          // for a finished upload this column holds the warning
+                completedAt = System.currentTimeMillis()
+            )
+            Notifications.showDone(applicationContext, id, title, uploaded.videoId, uploaded.warning)
+            val output = if (uploaded.warning != null) {
+                workDataOf(KEY_VIDEO_ID to uploaded.videoId, KEY_WARNING to uploaded.warning)
+            } else {
+                workDataOf(KEY_VIDEO_ID to uploaded.videoId)
+            }
+            Result.success(output)
         } catch (e: UploadException) {
             retryOrFail(e.message ?: "Upload failed.", e.retryable)
         } catch (e: IOException) {

@@ -54,7 +54,12 @@ fun Clip.toEntity(workId: String? = null): ClipEntity = ClipEntity(
     },
     percent = (upload as? UploadState.Uploading)?.percent ?: 0,
     videoId = (upload as? UploadState.Done)?.videoId,
-    error = (upload as? UploadState.Failed)?.message,
+    // The "error" column holds the failure message, or for a finished upload an optional warning.
+    error = when (upload) {
+        is UploadState.Failed -> upload.message
+        is UploadState.Done -> upload.note
+        else -> null
+    },
     workId = workId,
     createdAt = createdAt,
     completedAt = completedAt
@@ -72,7 +77,7 @@ fun ClipEntity.toClip(): Clip = Clip(
     upload = when (status) {
         ClipStatus.QUEUED -> UploadState.Queued
         ClipStatus.UPLOADING -> UploadState.Uploading(percent)
-        ClipStatus.DONE -> UploadState.Done(videoId.orEmpty())
+        ClipStatus.DONE -> UploadState.Done(videoId.orEmpty(), note = error)
         ClipStatus.FAILED -> UploadState.Failed(error ?: "Upload failed.")
         else -> UploadState.Idle
     },

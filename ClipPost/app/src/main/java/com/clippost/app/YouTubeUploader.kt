@@ -20,6 +20,9 @@ import java.time.Instant
  */
 class UploadException(message: String, val retryable: Boolean = false) : IOException(message)
 
+/** The new video's id, and a warning if YouTube did not do what we asked (for example it forced Private). */
+data class UploadResult(val videoId: String, val warning: String?)
+
 /**
  * Uploads one video with the YouTube Data API v3 (videos.insert, resumable protocol):
  *   1. POST the metadata  -> YouTube answers with a one-time upload URL (Location header).
@@ -35,13 +38,13 @@ class YouTubeUploader(private val resolver: ContentResolver) {
         privacy: Privacy,
         publishAtMillis: Long?,
         onProgress: suspend (Int) -> Unit
-    ): String = withContext(Dispatchers.IO) {
+    ): UploadResult = withContext(Dispatchers.IO) {
         val size = fileSize(uri)
         if (size <= 0) throw UploadException("Could not read the video file. Try adding the clip again.")
         val mime = resolver.getType(uri) ?: "video/*"
 
         val uploadUrl = startSession(accessToken, title, description, privacy, publishAtMillis, size, mime)
-        sendBytes(uploadUrl, uri, size, mime, onProgress)
+        sendBytes(uploadUrl, uri, size, mime, privacy, publishAtMillis, onProgress)
     }
 
     // ---- Step 1: create the upload session -------------------------------------------------
@@ -101,8 +104,10 @@ class YouTubeUploader(private val resolver: ContentResolver) {
         uri: Uri,
         size: Long,
         mime: String,
+        requested: Privacy,
+        publishAtMillis: Long?,
         onProgress: suspend (Int) -> Unit
-    ): String {
+    ): UploadResult {
         val conn = URL(uploadUrl).openConnection() as HttpURLConnection
         try {
             conn.requestMethod = "PUT"
@@ -136,16 +141,39 @@ class YouTubeUploader(private val resolver: ContentResolver) {
 
             val code = conn.responseCode
             if (code != 200 && code != 201) throw errorFrom(conn)
+
             val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
-            return json.optString("id").ifEmpty {
-                throw UploadException("YouTube accepted the upload but returned no video id.")
-            }
+            val videoId = json.optString("id")
+            if (videoId.isEmpty()) throw UploadException("YouTube accepted the upload but returned no video id.")
+            return UploadResult(videoId, checkResult(json, requested, publishAtMillis))
         } finally {
             conn.disconnect()
         }
     }
 
     // ---- Helpers ---------------------------------------------------------------------------
+
+    /**
+     * Compares what we asked for with what YouTube says it did.
+     * Projects that have not passed YouTube's API compliance audit get their videos locked to Private.
+     */
+    private fun checkResult(json: JSONObject, requested: Privacy, publishAtMillis: Long?): String? {
+        val status = json.optJSONObject("status") ?: return null
+        val actual = status.optString("privacyStatus")
+        return when {
+            publishAtMillis != null && status.optString("publishAt").isEmpty() ->
+                "Uploaded, but YouTube did not set the publish time, so the video stays Private. " +
+                    "Google Cloud projects that have not passed YouTube's API audit can't schedule. " +
+                    "You can set the date in YouTube Studio, or apply for the audit."
+
+            publishAtMillis == null && requested != Privacy.PRIVATE && actual == "private" ->
+                "Uploaded, but YouTube made the video Private even though you chose ${requested.label}. " +
+                    "This happens when your Google Cloud project has not passed YouTube's API audit. " +
+                    "You can change the visibility in YouTube Studio, or apply for the audit."
+
+            else -> null
+        }
+    }
 
     private fun fileSize(uri: Uri): Long {
         resolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
@@ -160,7 +188,7 @@ class YouTubeUploader(private val resolver: ContentResolver) {
     /** YouTube rejects "<" and ">" in titles and descriptions. */
     private fun clean(text: String) = text.replace("<", "").replace(">", "")
 
-    /** Turns YouTube's error JSON into one readable line. Server errors (5xx) and timeouts can be retried. */
+    /** Reads YouTube's error JSON and turns it into a message the user can act on. */
     private fun errorFrom(conn: HttpURLConnection): UploadException {
         val code = conn.responseCode
         val text = try {
@@ -168,15 +196,17 @@ class YouTubeUploader(private val resolver: ContentResolver) {
         } catch (_: IOException) {
             ""
         }
-        val message = try {
+        var reason = ""
+        var detail = ""
+        try {
             val error = JSONObject(text).getJSONObject("error")
-            val reason = error.optJSONArray("errors")?.optJSONObject(0)?.optString("reason").orEmpty()
-            val detail = error.optString("message")
-            "YouTube error $code" + (if (reason.isNotEmpty()) " ($reason)" else "") + ": $detail"
+            reason = error.optJSONArray("errors")?.optJSONObject(0)?.optString("reason").orEmpty()
+            detail = error.optString("message")
         } catch (_: Exception) {
-            "YouTube error $code"
+            // Not JSON: fall back to the status code alone.
         }
-        return UploadException(message, retryable = code == 408 || code >= 500)
+        val explained = YouTubeErrors.explain(code, reason, detail)
+        return UploadException(explained.message, explained.retryable)
     }
 
     private companion object {

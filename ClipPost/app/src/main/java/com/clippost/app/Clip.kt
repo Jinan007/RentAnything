@@ -21,7 +21,8 @@ sealed interface UploadState {
     data object Idle : UploadState
     data object Queued : UploadState                  // waiting for the network or a free worker
     data class Uploading(val percent: Int) : UploadState
-    data class Done(val videoId: String) : UploadState
+    /** note = a warning to show (for example "YouTube made this video Private"), or null when all is well. */
+    data class Done(val videoId: String, val note: String? = null) : UploadState
     data class Failed(val message: String) : UploadState
 }
 

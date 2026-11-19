@@ -40,7 +40,7 @@ object Notifications {
         )
     }
 
-    fun showDone(context: Context, workId: UUID, title: String, videoId: String) {
+    fun showDone(context: Context, workId: UUID, title: String, videoId: String, warning: String? = null) {
         val url = "https://youtu.be/$videoId"
         val open = PendingIntent.getActivity(
             context,
@@ -50,8 +50,9 @@ object Notifications {
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_upload_done)
-            .setContentTitle("Uploaded to YouTube ✓")
-            .setContentText("$title - tap to open")
+            .setContentTitle(if (warning == null) "Uploaded to YouTube ✓" else "Uploaded - needs your attention")
+            .setContentText(warning ?: "$title - tap to open")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(warning ?: "$title - tap to open"))
             .setContentIntent(open)
             .setAutoCancel(true)
             .build()

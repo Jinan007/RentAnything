@@ -29,6 +29,7 @@ import com.clippost.app.work.KEY_PUBLISH_AT
 import com.clippost.app.work.KEY_TITLE
 import com.clippost.app.work.KEY_URI
 import com.clippost.app.work.KEY_VIDEO_ID
+import com.clippost.app.work.KEY_WARNING
 import com.clippost.app.work.TAG_UPLOAD
 import com.clippost.app.work.UploadWorker
 import kotlinx.coroutines.Dispatchers
@@ -228,7 +229,10 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
                     WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> UploadState.Queued
                     WorkInfo.State.RUNNING -> UploadState.Uploading(info.progress.getInt(KEY_PERCENT, 0))
                     WorkInfo.State.SUCCEEDED ->
-                        UploadState.Done(info.outputData.getString(KEY_VIDEO_ID).orEmpty())
+                        UploadState.Done(
+                            info.outputData.getString(KEY_VIDEO_ID).orEmpty(),
+                            note = info.outputData.getString(KEY_WARNING)
+                        )
                     WorkInfo.State.FAILED ->
                         UploadState.Failed(info.outputData.getString(KEY_ERROR) ?: "Upload failed.")
                     WorkInfo.State.CANCELLED -> UploadState.Failed("Upload cancelled.")

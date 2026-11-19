@@ -59,7 +59,9 @@ import com.clippost.app.CrashReporter
 import com.clippost.app.MAX_CAPTION
 import com.clippost.app.MAX_TITLE
 import com.clippost.app.Privacy
+import com.clippost.app.Quota
 import com.clippost.app.UploadState
+import com.clippost.app.YouTubeErrors
 import com.clippost.app.displayName
 import com.clippost.app.keepReadAccess
 import com.clippost.app.signingSha1
@@ -145,6 +147,7 @@ fun ClipListScreen(viewModel: ClipViewModel = viewModel()) {
 
                 val appInfo = remember { "Package: ${context.packageName}\nSHA-1: ${context.signingSha1()}" }
                 ConnectCard(state = viewModel.authState, appInfo = appInfo, onConnect = viewModel::connect)
+                QuotaNote(left = Quota.leftToday(viewModel.clips))
 
                 if (queue.isEmpty()) {
                     EmptyMessage("No clips in the queue.\nTap \"Add clips\" to pick videos from your gallery.")
@@ -197,6 +200,22 @@ private fun androidx.compose.foundation.layout.ColumnScope.EmptyMessage(text: St
     ) {
         Text(text)
     }
+}
+
+/** An estimate of how many uploads fit in today's YouTube quota. */
+@Composable
+private fun QuotaNote(left: Int) {
+    val text = if (left > 0) {
+        "Daily quota: about $left of ${Quota.UPLOADS_PER_DAY} uploads left today. Resets ${Quota.resetText()}."
+    } else {
+        "Daily quota: probably used up. It resets ${Quota.resetText()}."
+    }
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = if (left > 0) Color.Gray else MaterialTheme.colorScheme.error,
+        modifier = Modifier.padding(horizontal = 16.dp)
+    )
 }
 
 @Composable
@@ -420,6 +439,12 @@ private fun HistoryCard(clip: Clip, onRemove: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall
             )
             Text(url, style = MaterialTheme.typography.bodySmall)
+            // A warning, e.g. YouTube forced the video to Private because the project is not audited.
+            val note = (clip.upload as? UploadState.Done)?.note
+            if (note != null) {
+                Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                TextButton(onClick = { uriHandler.openUri(YouTubeErrors.AUDIT_HELP_URL) }) { Text("How to fix") }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = { uriHandler.openUri(url) }) { Text("Open on YouTube") }
                 TextButton(onClick = onRemove) { Text("Remove from list") }

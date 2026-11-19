@@ -61,6 +61,13 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 
+    // Auto captions: Vosk = on-device speech-to-text with word timestamps,
+    // Media3 Transformer = draws the subtitles onto the video.
+    implementation(libs.vosk.android)
+    implementation(libs.androidx.media3.common)
+    implementation(libs.androidx.media3.effect)
+    implementation(libs.androidx.media3.transformer)
+
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)

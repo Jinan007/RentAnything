@@ -165,6 +165,7 @@ fun ClipListScreen(viewModel: ClipViewModel = viewModel()) {
                                 onCaptionChange = { viewModel.setCaption(clip.id, it) },
                                 onPrivacyChange = { viewModel.setPrivacy(clip.id, it) },
                                 onShortsChange = { viewModel.setAddShorts(clip.id, it) },
+                                onCaptionsChange = { viewModel.setCaptions(clip.id, it) },
                                 onScheduleChange = { viewModel.setPublishAt(clip.id, it) },
                                 onUpload = { viewModel.upload(clip.id) },
                                 onCancel = { viewModel.cancel(clip.id) },
@@ -275,13 +276,15 @@ private fun ClipCard(
     onCaptionChange: (String) -> Unit,
     onPrivacyChange: (Privacy) -> Unit,
     onShortsChange: (Boolean) -> Unit,
+    onCaptionsChange: (Boolean) -> Unit,
     onScheduleChange: (Long?) -> Unit,
     onUpload: () -> Unit,
     onCancel: () -> Unit,
     onRemove: () -> Unit
 ) {
     // Fields are locked while an upload is queued or running.
-    val busy = clip.upload is UploadState.Uploading || clip.upload is UploadState.Queued
+    val busy = clip.upload is UploadState.Uploading || clip.upload is UploadState.Queued ||
+        clip.upload is UploadState.Processing
     val editable = !busy
     val scheduledAt = clip.publishAtMillis
     var showSchedule by remember { mutableStateOf(false) }
@@ -366,6 +369,20 @@ private fun ClipCard(
                 Text("Add #Shorts to description")
             }
 
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = clip.captions, onCheckedChange = onCaptionsChange, enabled = editable)
+                Spacer(Modifier.width(8.dp))
+                Text("Add auto captions")
+            }
+            if (clip.captions) {
+                Text(
+                    "Speech is turned into text on your phone and drawn onto the video. English only. " +
+                        "The first time it downloads a speech model (about 40 MB). Takes extra time.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+            }
+
             when (val state = clip.upload) {
                 UploadState.Idle -> {
                     Button(onClick = onUpload, enabled = canUpload) {
@@ -382,6 +399,15 @@ private fun ClipCard(
 
                 UploadState.Queued -> {
                     Text("Waiting to start… (it will wait for internet if needed)")
+                    TextButton(onClick = onCancel) { Text("Cancel") }
+                }
+
+                is UploadState.Processing -> {
+                    LinearProgressIndicator(
+                        progress = { state.percent / 100f },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("${state.stage}… ${state.percent}%")
                     TextButton(onClick = onCancel) { Text("Cancel") }
                 }
 

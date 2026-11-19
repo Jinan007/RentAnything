@@ -20,6 +20,7 @@ import com.clippost.app.data.AppDatabase
 import com.clippost.app.data.ClipStatus
 import com.clippost.app.data.toClip
 import com.clippost.app.data.toEntity
+import com.clippost.app.work.KEY_CAPTIONS
 import com.clippost.app.work.KEY_CLIP_ID
 import com.clippost.app.work.KEY_DESCRIPTION
 import com.clippost.app.work.KEY_ERROR
@@ -27,6 +28,7 @@ import com.clippost.app.work.KEY_PERCENT
 import com.clippost.app.work.KEY_PRIVACY
 import com.clippost.app.work.KEY_PUBLISH_AT
 import com.clippost.app.work.KEY_TITLE
+import com.clippost.app.work.KEY_STAGE
 import com.clippost.app.work.KEY_URI
 import com.clippost.app.work.KEY_VIDEO_ID
 import com.clippost.app.work.KEY_WARNING
@@ -118,7 +120,8 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
             val workId = entity.workId?.let { runCatching { UUID.fromString(it) }.getOrNull() }
             if (workId != null) workIds[clip.id] = workId
 
-            val active = clip.upload is UploadState.Queued || clip.upload is UploadState.Uploading
+            val active = clip.upload is UploadState.Queued || clip.upload is UploadState.Uploading ||
+                clip.upload is UploadState.Processing
             if (active) {
                 val known = workId != null && workManager.getWorkInfoByIdFlow(workId).first() != null
                 if (known) {
@@ -151,6 +154,8 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setAddShorts(id: String, addShorts: Boolean) = edit(id) { it.copy(addShorts = addShorts) }
 
+    fun setCaptions(id: String, captions: Boolean) = edit(id) { it.copy(captions = captions) }
+
     /** Schedules publishing (or clears the schedule with null). Scheduled videos are always Private until then. */
     fun setPublishAt(id: String, millis: Long?) = edit(id) {
         it.copy(publishAtMillis = millis, privacy = if (millis != null) Privacy.PRIVATE else it.privacy)
@@ -170,7 +175,9 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
     /** Queues one clip for upload. The job keeps running even if the app is closed. */
     fun upload(id: String) {
         val clip = _clips.firstOrNull { it.id == id } ?: return
-        if (clip.upload is UploadState.Uploading || clip.upload is UploadState.Queued) return
+        if (clip.upload is UploadState.Uploading || clip.upload is UploadState.Queued ||
+            clip.upload is UploadState.Processing
+        ) return
 
         if (clip.title.isBlank()) {
             setUpload(id, UploadState.Failed("Please give the clip a title."))
@@ -191,7 +198,8 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
                     KEY_TITLE to clip.title.trim(),
                     KEY_DESCRIPTION to buildDescription(clip),
                     KEY_PRIVACY to clip.privacy.name,
-                    KEY_PUBLISH_AT to (publishAt ?: -1L)
+                    KEY_PUBLISH_AT to (publishAt ?: -1L),
+                    KEY_CAPTIONS to clip.captions
                 )
             )
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
@@ -206,7 +214,10 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             // Save everything BEFORE the worker starts, so the worker's later updates always win.
             withContext(Dispatchers.IO) {
-                dao.updateEdits(clip.id, clip.title, clip.caption, clip.privacy.name, clip.addShorts, clip.publishAtMillis)
+                dao.updateEdits(
+                    clip.id, clip.title, clip.caption, clip.privacy.name,
+                    clip.addShorts, clip.captions, clip.publishAtMillis
+                )
                 dao.setWorkId(clip.id, request.id.toString())
                 dao.updateStatus(clip.id, ClipStatus.QUEUED, 0, null, null, null)
             }
@@ -227,7 +238,11 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
                 if (info == null) return@collect
                 val state = when (info.state) {
                     WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> UploadState.Queued
-                    WorkInfo.State.RUNNING -> UploadState.Uploading(info.progress.getInt(KEY_PERCENT, 0))
+                    WorkInfo.State.RUNNING -> {
+                        val percent = info.progress.getInt(KEY_PERCENT, 0)
+                        val stage = info.progress.getString(KEY_STAGE)
+                        if (stage != null) UploadState.Processing(stage, percent) else UploadState.Uploading(percent)
+                    }
                     WorkInfo.State.SUCCEEDED ->
                         UploadState.Done(
                             info.outputData.getString(KEY_VIDEO_ID).orEmpty(),
@@ -274,7 +289,10 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
             delay(400)
             val clip = _clips.firstOrNull { it.id == id } ?: return@launch
             withContext(Dispatchers.IO) {
-                dao.updateEdits(clip.id, clip.title, clip.caption, clip.privacy.name, clip.addShorts, clip.publishAtMillis)
+                dao.updateEdits(
+                    clip.id, clip.title, clip.caption, clip.privacy.name,
+                    clip.addShorts, clip.captions, clip.publishAtMillis
+                )
             }
         }
     }

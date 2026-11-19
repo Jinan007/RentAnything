@@ -23,11 +23,17 @@ object Notifications {
     private const val CHANNEL_ID = "clippost_uploads"
 
     /** The notification shown while a worker is running (required for background work). */
-    fun uploadingInfo(context: Context, workId: UUID, title: String, percent: Int): ForegroundInfo {
+    fun uploadingInfo(
+        context: Context,
+        workId: UUID,
+        title: String,
+        percent: Int,
+        stage: String? = null
+    ): ForegroundInfo {
         ensureChannel(context)
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
-            .setContentTitle("Uploading to YouTube: $percent%")
+            .setContentTitle(if (stage != null) "$stage: $percent%" else "Uploading to YouTube: $percent%")
             .setContentText(title)
             .setProgress(100, percent, percent == 0)
             .setOngoing(true)

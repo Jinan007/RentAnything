@@ -41,7 +41,8 @@ class YouTubeUploader(private val resolver: ContentResolver) {
     ): UploadResult = withContext(Dispatchers.IO) {
         val size = fileSize(uri)
         if (size <= 0) throw UploadException("Could not read the video file. Try adding the clip again.")
-        val mime = resolver.getType(uri) ?: "video/*"
+        // Gallery videos report their type; our own captioned copy (a plain file) is always MP4.
+        val mime = resolver.getType(uri) ?: "video/mp4"
 
         val uploadUrl = startSession(accessToken, title, description, privacy, publishAtMillis, size, mime)
         sendBytes(uploadUrl, uri, size, mime, privacy, publishAtMillis, onProgress)

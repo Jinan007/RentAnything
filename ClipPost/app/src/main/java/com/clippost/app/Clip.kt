@@ -20,6 +20,8 @@ enum class Privacy(val label: String, val apiValue: String) {
 sealed interface UploadState {
     data object Idle : UploadState
     data object Queued : UploadState                  // waiting for the network or a free worker
+    /** Before uploading: making captions (stage = what it is doing, e.g. "Listening for speech"). */
+    data class Processing(val stage: String, val percent: Int) : UploadState
     data class Uploading(val percent: Int) : UploadState
     /** note = a warning to show (for example "YouTube made this video Private"), or null when all is well. */
     data class Done(val videoId: String, val note: String? = null) : UploadState
@@ -34,6 +36,8 @@ data class Clip(
     val caption: String = "",
     val privacy: Privacy = Privacy.PRIVATE,
     val addShorts: Boolean = false,
+    /** Turn the speech into captions and draw them onto the video before uploading. */
+    val captions: Boolean = false,
     /** If set, the video uploads as Private and YouTube makes it public at this time (epoch milliseconds). */
     val publishAtMillis: Long? = null,
     val upload: UploadState = UploadState.Idle,

@@ -1,6 +1,7 @@
 package com.clippost.app.data
 
 import android.net.Uri
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.clippost.app.Clip
@@ -11,6 +12,7 @@ import com.clippost.app.UploadState
 object ClipStatus {
     const val IDLE = "IDLE"
     const val QUEUED = "QUEUED"
+    const val PROCESSING = "PROCESSING"
     const val UPLOADING = "UPLOADING"
     const val DONE = "DONE"
     const val FAILED = "FAILED"
@@ -26,10 +28,12 @@ data class ClipEntity(
     val caption: String,
     val privacy: String,
     val addShorts: Boolean,
+    @ColumnInfo(defaultValue = "0") val captions: Boolean,
     val publishAtMillis: Long?,
     val status: String,
     val percent: Int,
     val videoId: String?,
+    /** Failed: the error. Done: an optional warning. Processing: the stage text. */
     val error: String?,
     val workId: String?,
     val createdAt: Long,
@@ -44,20 +48,26 @@ fun Clip.toEntity(workId: String? = null): ClipEntity = ClipEntity(
     caption = caption,
     privacy = privacy.name,
     addShorts = addShorts,
+    captions = captions,
     publishAtMillis = publishAtMillis,
     status = when (upload) {
         UploadState.Idle -> ClipStatus.IDLE
         UploadState.Queued -> ClipStatus.QUEUED
+        is UploadState.Processing -> ClipStatus.PROCESSING
         is UploadState.Uploading -> ClipStatus.UPLOADING
         is UploadState.Done -> ClipStatus.DONE
         is UploadState.Failed -> ClipStatus.FAILED
     },
-    percent = (upload as? UploadState.Uploading)?.percent ?: 0,
+    percent = when (upload) {
+        is UploadState.Processing -> upload.percent
+        is UploadState.Uploading -> upload.percent
+        else -> 0
+    },
     videoId = (upload as? UploadState.Done)?.videoId,
-    // The "error" column holds the failure message, or for a finished upload an optional warning.
     error = when (upload) {
         is UploadState.Failed -> upload.message
         is UploadState.Done -> upload.note
+        is UploadState.Processing -> upload.stage
         else -> null
     },
     workId = workId,
@@ -73,9 +83,11 @@ fun ClipEntity.toClip(): Clip = Clip(
     caption = caption,
     privacy = runCatching { Privacy.valueOf(privacy) }.getOrDefault(Privacy.PRIVATE),
     addShorts = addShorts,
+    captions = captions,
     publishAtMillis = publishAtMillis,
     upload = when (status) {
         ClipStatus.QUEUED -> UploadState.Queued
+        ClipStatus.PROCESSING -> UploadState.Processing(error ?: "Working", percent)
         ClipStatus.UPLOADING -> UploadState.Uploading(percent)
         ClipStatus.DONE -> UploadState.Done(videoId.orEmpty(), note = error)
         ClipStatus.FAILED -> UploadState.Failed(error ?: "Upload failed.")

@@ -60,11 +60,13 @@ import com.clippost.app.ClipViewModel
 import com.clippost.app.CrashReporter
 import com.clippost.app.MAX_CAPTION
 import com.clippost.app.MAX_TITLE
+import com.clippost.app.PostingPlan
 import com.clippost.app.Privacy
 import com.clippost.app.Quota
 import com.clippost.app.UploadState
 import com.clippost.app.YouTubeErrors
 import com.clippost.app.captions.FacecamRegion
+import com.clippost.app.captions.VerticalStyle
 import com.clippost.app.displayName
 import com.clippost.app.keepReadAccess
 import com.clippost.app.signingSha1
@@ -151,6 +153,7 @@ fun ClipListScreen(viewModel: ClipViewModel = viewModel()) {
                 val appInfo = remember { "Package: ${context.packageName}\nSHA-1: ${context.signingSha1()}" }
                 ConnectCard(state = viewModel.authState, appInfo = appInfo, onConnect = viewModel::connect)
                 QuotaNote(left = Quota.leftToday(viewModel.clips))
+                PostingPlanCard(perDay = viewModel.postsPerDay, onChange = viewModel::setPostsPerDay)
 
                 if (queue.isEmpty()) {
                     EmptyMessage("No clips in the queue.\nTap \"Add clips\" to pick videos from your gallery.")
@@ -170,10 +173,12 @@ fun ClipListScreen(viewModel: ClipViewModel = viewModel()) {
                                 onShortsChange = { viewModel.setAddShorts(clip.id, it) },
                                 onCaptionsChange = { viewModel.setCaptions(clip.id, it) },
                                 onVerticalChange = { viewModel.setVertical(clip.id, it) },
+                                onStyleChange = { viewModel.setStyle(clip.id, it) },
                                 onFacecamChange = { viewModel.setFacecam(clip.id, it) },
                                 onTopTextChange = { viewModel.setTopText(clip.id, it) },
                                 onAutoMetaChange = { viewModel.setAutoMeta(clip.id, it) },
                                 onScheduleChange = { viewModel.setPublishAt(clip.id, it) },
+                                onPickBestTime = { next -> viewModel.pickBestTime(clip.id, next) },
                                 onUpload = { viewModel.upload(clip.id) },
                                 onCancel = { viewModel.cancel(clip.id) },
                                 onRemove = { viewModel.remove(clip.id) }
@@ -224,6 +229,35 @@ private fun QuotaNote(left: Int) {
         color = if (left > 0) Color.Gray else MaterialTheme.colorScheme.error,
         modifier = Modifier.padding(horizontal = 16.dp)
     )
+}
+
+/** Choose how many Shorts per day; the times are picked for UK + US viewers with a gap between videos. */
+@Composable
+private fun PostingPlanCard(perDay: Int, onChange: (Int) -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Posting plan for UK + US viewers", style = MaterialTheme.typography.titleSmall)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Shorts per day:", style = MaterialTheme.typography.labelMedium)
+                (1..PostingPlan.MAX_PER_DAY).forEach { count ->
+                    FilterChip(
+                        selected = perDay == count,
+                        onClick = { onChange(count) },
+                        label = { Text("$count") }
+                    )
+                }
+            }
+            Text(
+                "Times: ${PostingPlan.slotText(perDay)}, at least 3 hours apart. Turn on " +
+                    "\"Schedule publishing\" on a clip to give it the next free slot.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+        }
+    }
 }
 
 @Composable
@@ -286,10 +320,12 @@ private fun ClipCard(
     onShortsChange: (Boolean) -> Unit,
     onCaptionsChange: (Boolean) -> Unit,
     onVerticalChange: (Boolean) -> Unit,
+    onStyleChange: (VerticalStyle) -> Unit,
     onFacecamChange: (FacecamRegion) -> Unit,
     onTopTextChange: (String) -> Unit,
     onAutoMetaChange: (Boolean) -> Unit,
     onScheduleChange: (Long?) -> Unit,
+    onPickBestTime: (Boolean) -> Unit,
     onUpload: () -> Unit,
     onCancel: () -> Unit,
     onRemove: () -> Unit
@@ -358,7 +394,8 @@ private fun ClipCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(
                     checked = scheduledAt != null,
-                    onCheckedChange = { on -> if (on) showSchedule = true else onScheduleChange(null) },
+                    // Switching on picks the next free slot of the posting plan; "Change time" is for a custom time.
+                    onCheckedChange = { on -> if (on) onPickBestTime(false) else onScheduleChange(null) },
                     enabled = editable
                 )
                 Spacer(Modifier.width(8.dp))
@@ -367,7 +404,9 @@ private fun ClipCard(
             if (scheduledAt != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { showSchedule = true }, enabled = editable) { Text("Change time") }
+                    TextButton(onClick = { onPickBestTime(true) }, enabled = editable) { Text("Next free slot") }
                 }
+                Text(PostingPlan.describe(scheduledAt), style = MaterialTheme.typography.bodySmall)
                 Text(
                     "Uploads as Private, then YouTube makes it public at that time.",
                     style = MaterialTheme.typography.bodySmall,
@@ -416,30 +455,52 @@ private fun ClipCard(
                 Text("Make vertical split-screen")
             }
             if (clip.vertical) {
-                Text(
-                    "Rebuilds the clip as 1080 x 1920: the face cam on top, the gameplay below. " +
-                        "Videos up to 3 minutes can appear in Shorts, so turn on #Shorts too.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray
-                )
-                Text("Where is the face cam in your clip?", style = MaterialTheme.typography.labelMedium)
+                Text("Layout", style = MaterialTheme.typography.labelMedium)
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    FacecamRegion.entries.forEach { region ->
+                    VerticalStyle.entries.forEach { style ->
                         FilterChip(
-                            selected = clip.facecam == region,
-                            onClick = { onFacecamChange(region) },
+                            selected = clip.style == style,
+                            onClick = { onStyleChange(style) },
                             enabled = editable,
-                            label = { Text(region.label) }
+                            label = { Text(style.label) }
                         )
+                    }
+                }
+                val split = clip.style == VerticalStyle.SPLIT
+                Text(
+                    (if (split) {
+                        "Face cam on top, gameplay below, 1080 x 1920. "
+                    } else {
+                        "The whole clip stays in the middle with a plain background above and below, 1080 x 1920. "
+                    }) + "Videos up to 3 minutes can appear in Shorts, so turn on #Shorts too.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+                if (split) {
+                    Text("Where is the face cam in your clip?", style = MaterialTheme.typography.labelMedium)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        FacecamRegion.entries.forEach { region ->
+                            FilterChip(
+                                selected = clip.facecam == region,
+                                onClick = { onFacecamChange(region) },
+                                enabled = editable,
+                                label = { Text(region.label) }
+                            )
+                        }
                     }
                 }
                 OutlinedTextField(
                     value = clip.topText,
                     onValueChange = onTopTextChange,
-                    label = { Text("Text on the split line (empty = use the title)") },
+                    label = {
+                        Text(if (split) "Text on the split line (empty = title)" else "Text on the top bar (empty = title)")
+                    },
                     singleLine = true,
                     enabled = editable,
                     modifier = Modifier.fillMaxWidth()

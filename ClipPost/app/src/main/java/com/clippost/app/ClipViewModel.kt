@@ -2,8 +2,10 @@ package com.clippost.app
 
 import android.app.Application
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -21,6 +23,7 @@ import com.clippost.app.data.ClipStatus
 import com.clippost.app.data.toClip
 import com.clippost.app.data.toEntity
 import com.clippost.app.captions.FacecamRegion
+import com.clippost.app.captions.VerticalStyle
 import com.clippost.app.work.KEY_CAPTIONS
 import com.clippost.app.work.KEY_CLIP_ID
 import com.clippost.app.work.KEY_DESCRIPTION
@@ -35,6 +38,7 @@ import com.clippost.app.work.KEY_PRIVACY
 import com.clippost.app.work.KEY_PUBLISH_AT
 import com.clippost.app.work.KEY_TITLE
 import com.clippost.app.work.KEY_STAGE
+import com.clippost.app.work.KEY_STYLE
 import com.clippost.app.work.KEY_TOP_TEXT
 import com.clippost.app.work.KEY_URI
 import com.clippost.app.work.KEY_VERTICAL
@@ -59,6 +63,13 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
 
     private val dao = AppDatabase.get(app).clipDao()
     private val workManager = WorkManager.getInstance(app)
+    private val prefs = app.getSharedPreferences("clippost_prefs", Context.MODE_PRIVATE)
+
+    /** How many Shorts per day the posting plan uses (1 to 3). Kept after the app closes. */
+    var postsPerDay by mutableIntStateOf(
+        prefs.getInt("posts_per_day", PostingPlan.MAX_PER_DAY).coerceIn(1, PostingPlan.MAX_PER_DAY)
+    )
+        private set
 
     /** clip id -> the WorkManager job uploading it (so we can watch and cancel it). */
     private val workIds = mutableMapOf<String, UUID>()
@@ -172,6 +183,24 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setAutoMeta(id: String, autoMeta: Boolean) = edit(id) { it.copy(autoMeta = autoMeta) }
 
+    fun setStyle(id: String, style: VerticalStyle) = edit(id) { it.copy(style = style) }
+
+    fun setPostsPerDay(count: Int) {
+        postsPerDay = count.coerceIn(1, PostingPlan.MAX_PER_DAY)
+        prefs.edit().putInt("posts_per_day", postsPerDay).apply()
+    }
+
+    /**
+     * Schedules a clip at the next free slot of the posting plan (UK + US viewers, with a gap between videos).
+     * @param afterCurrent true: move to the slot after the one this clip already has
+     */
+    fun pickBestTime(id: String, afterCurrent: Boolean) {
+        val clip = _clips.firstOrNull { it.id == id } ?: return
+        val taken = _clips.filter { it.id != id }.mapNotNull { it.publishAtMillis }
+        val after = if (afterCurrent) clip.publishAtMillis ?: 0L else 0L
+        setPublishAt(id, PostingPlan.nextSlot(System.currentTimeMillis(), postsPerDay, taken, after))
+    }
+
     /** Schedules publishing (or clears the schedule with null). Scheduled videos are always Private until then. */
     fun setPublishAt(id: String, millis: Long?) = edit(id) {
         it.copy(publishAtMillis = millis, privacy = if (millis != null) Privacy.PRIVATE else it.privacy)
@@ -223,6 +252,7 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
                     KEY_PUBLISH_AT to (publishAt ?: -1L),
                     KEY_CAPTIONS to clip.captions,
                     KEY_VERTICAL to clip.vertical,
+                    KEY_STYLE to clip.style.name,
                     KEY_FACECAM to clip.facecam.name,
                     KEY_TOP_TEXT to clip.topText.trim()
                 )
@@ -241,7 +271,7 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
             withContext(Dispatchers.IO) {
                 dao.updateEdits(
                     clip.id, clip.title, clip.caption, clip.privacy.name,
-                    clip.addShorts, clip.captions, clip.vertical, clip.facecam.name, clip.topText, clip.autoMeta,
+                    clip.addShorts, clip.captions, clip.vertical, clip.style.name, clip.facecam.name, clip.topText, clip.autoMeta,
                     clip.publishAtMillis
                 )
                 dao.setWorkId(clip.id, request.id.toString())
@@ -308,7 +338,7 @@ class ClipViewModel(app: Application) : AndroidViewModel(app) {
             withContext(Dispatchers.IO) {
                 dao.updateEdits(
                     clip.id, clip.title, clip.caption, clip.privacy.name,
-                    clip.addShorts, clip.captions, clip.vertical, clip.facecam.name, clip.topText, clip.autoMeta,
+                    clip.addShorts, clip.captions, clip.vertical, clip.style.name, clip.facecam.name, clip.topText, clip.autoMeta,
                     clip.publishAtMillis
                 )
             }

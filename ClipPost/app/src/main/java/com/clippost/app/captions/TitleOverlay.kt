@@ -25,7 +25,9 @@ class TitleOverlay(
     private val centerY: Float,
     private val showForMs: Long,
     maxWidthPx: Int = 940,
-    textSizePx: Float = 62f
+    textSizePx: Float = 62f,
+    /** false: black text on a white box. true: white text on a black box (for white backgrounds). */
+    private val inverted: Boolean = false
 ) : BitmapOverlay() {
 
     private val box: Bitmap = draw(text, maxWidthPx, textSizePx)
@@ -45,7 +47,7 @@ class TitleOverlay(
     private fun draw(text: String, maxWidthPx: Int, textSizePx: Float): Bitmap {
         val padding = 28
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
+            color = if (inverted) Color.WHITE else Color.BLACK
             textSize = textSizePx
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
@@ -64,7 +66,7 @@ class TitleOverlay(
 
         val bitmap = Bitmap.createBitmap(boxWidth, boxHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        val background = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+        val background = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (inverted) Color.BLACK else Color.WHITE }
         canvas.drawRoundRect(RectF(0f, 0f, boxWidth.toFloat(), boxHeight.toFloat()), 34f, 34f, background)
 
         // The layout is textWidth wide with its lines centred in it. The box is only as wide as the

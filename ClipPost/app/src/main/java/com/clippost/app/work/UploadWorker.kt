@@ -20,6 +20,7 @@ import com.clippost.app.captions.FacecamRegion
 import com.clippost.app.captions.Metadata
 import com.clippost.app.captions.TemplateWriter
 import com.clippost.app.captions.VerticalSpec
+import com.clippost.app.captions.VerticalStyle
 import com.clippost.app.captions.Word
 import com.clippost.app.data.AppDatabase
 import com.clippost.app.data.ClipStatus
@@ -37,6 +38,7 @@ const val KEY_PRIVACY = "privacy"
 const val KEY_PUBLISH_AT = "publishAt"      // epoch milliseconds, or -1 for "publish now"
 const val KEY_CAPTIONS = "captions"         // true = draw auto captions
 const val KEY_VERTICAL = "vertical"         // true = rebuild as a vertical split-screen
+const val KEY_STYLE = "style"               // VerticalStyle name (white, black or split screen)
 const val KEY_FACECAM = "facecam"           // FacecamRegion name
 const val KEY_TOP_TEXT = "topText"          // text box on the split line
 const val KEY_AUTO_META = "autoMeta"        // true = write title/caption/tags/comment automatically
@@ -117,6 +119,8 @@ class UploadWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
         // ---- Step 3: edit the video (captions and/or the vertical layout) ----
         val vertical = if (inputData.getBoolean(KEY_VERTICAL, false)) {
             VerticalSpec(
+                style = runCatching { VerticalStyle.valueOf(inputData.getString(KEY_STYLE).orEmpty()) }
+                    .getOrDefault(VerticalStyle.WHITE),
                 region = runCatching { FacecamRegion.valueOf(inputData.getString(KEY_FACECAM).orEmpty()) }
                     .getOrDefault(FacecamRegion.TOP_RIGHT),
                 topText = inputData.getString(KEY_TOP_TEXT).orEmpty().ifBlank { finalTitle }

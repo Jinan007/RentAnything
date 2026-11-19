@@ -8,6 +8,7 @@ import com.clippost.app.Clip
 import com.clippost.app.Privacy
 import com.clippost.app.UploadState
 import com.clippost.app.captions.FacecamRegion
+import com.clippost.app.captions.VerticalStyle
 
 /** The upload state is stored as plain text so the database stays simple. */
 object ClipStatus {
@@ -31,6 +32,7 @@ data class ClipEntity(
     val addShorts: Boolean,
     @ColumnInfo(defaultValue = "0") val captions: Boolean,
     @ColumnInfo(defaultValue = "0") val vertical: Boolean,
+    @ColumnInfo(defaultValue = "'WHITE'") val layoutStyle: String,
     @ColumnInfo(defaultValue = "'TOP_RIGHT'") val facecam: String,
     @ColumnInfo(defaultValue = "''") val topText: String,
     @ColumnInfo(defaultValue = "0") val autoMeta: Boolean,
@@ -55,6 +57,7 @@ fun Clip.toEntity(workId: String? = null): ClipEntity = ClipEntity(
     addShorts = addShorts,
     captions = captions,
     vertical = vertical,
+    layoutStyle = style.name,
     facecam = facecam.name,
     topText = topText,
     autoMeta = autoMeta,
@@ -94,6 +97,7 @@ fun ClipEntity.toClip(): Clip = Clip(
     addShorts = addShorts,
     captions = captions,
     vertical = vertical,
+    style = runCatching { VerticalStyle.valueOf(layoutStyle) }.getOrDefault(VerticalStyle.WHITE),
     facecam = runCatching { FacecamRegion.valueOf(facecam) }.getOrDefault(FacecamRegion.TOP_RIGHT),
     topText = topText,
     autoMeta = autoMeta,

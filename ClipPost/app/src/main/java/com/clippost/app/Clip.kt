@@ -2,6 +2,7 @@ package com.clippost.app
 
 import android.net.Uri
 import com.clippost.app.captions.FacecamRegion
+import com.clippost.app.captions.VerticalStyle
 import java.util.UUID
 
 const val MAX_TITLE = 100          // YouTube title limit
@@ -41,7 +42,9 @@ data class Clip(
     val captions: Boolean = false,
     /** Rebuild the landscape clip as a vertical split-screen (face cam on top, gameplay below). */
     val vertical: Boolean = false,
-    /** Where the face cam is in the original clip. */
+    /** White or black background around the whole clip, or split screen with the face cam on top. */
+    val style: VerticalStyle = VerticalStyle.WHITE,
+    /** Split screen only: where the face cam is in the original clip. */
     val facecam: FacecamRegion = FacecamRegion.TOP_RIGHT,
     /** The text box on the split line. Empty means "use the title". */
     val topText: String = "",

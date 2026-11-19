@@ -9,6 +9,7 @@ import androidx.media3.common.OverlaySettings
 import androidx.media3.common.VideoCompositorSettings
 import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.effect.Brightness
 import androidx.media3.effect.Crop
 import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.Presentation
@@ -19,25 +20,31 @@ import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
 import java.io.File
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
- * Turns a landscape clip into a vertical 1080 x 1920 split-screen video:
- *   top    = the face cam, cut out of the original clip
- *   bottom = the gameplay (the original clip, filled to the width)
- * with a title box on the split line and, optionally, word-by-word captions.
- * Sound comes from the original clip. The same file is read twice, once for each half.
+ * Turns a landscape clip into a vertical 1080 x 1920 video, in one of three styles:
+ *   WHITE / BLACK: the whole clip in the middle, a plain white or black background above and below,
+ *                  the title on the top bar and the captions at the bottom of the picture.
+ *   SPLIT:         face cam in the top part, gameplay in the bottom part, title box on the split line.
+ * Sound comes from the original clip. The same file is read twice (the second read is the background
+ * or the face cam).
  */
 @OptIn(UnstableApi::class)
 object VerticalComposer {
 
-    /** The title box stays on screen this long. */
-    private const val TITLE_SHOW_MS = 4_000L
+    /** In the split style the title box stays on screen this long. */
+    private const val SPLIT_TITLE_MS = 4_000L
 
     /** Caption text height, as a share of the output width (1080). */
     private const val CAPTION_SIZE_RATIO = 0.075f
 
-    /** Captions sit a little below the split line so they never cover the title box. */
-    private const val CAPTION_OFFSET_BELOW_SEAM = 0.25f
+    /** Split style: captions sit a little below the split line so they never cover the title box. */
+    private const val SPLIT_CAPTION_OFFSET_BELOW_SEAM = 0.25f
+
+    /** Background styles: captions sit this far above the bottom edge of the picture (screen units). */
+    private const val BARS_CAPTION_LIFT = 0.12f
 
     suspend fun render(
         context: Context,
@@ -47,6 +54,102 @@ object VerticalComposer {
         output: File,
         onProgress: suspend (Int) -> Unit
     ) {
+        val composition = when (spec.style) {
+            VerticalStyle.SPLIT -> splitComposition(source, spec, captionLines)
+            VerticalStyle.WHITE, VerticalStyle.BLACK -> backgroundComposition(context, source, spec, captionLines)
+        }
+        Exporter.export(context, composition, output, onProgress)
+    }
+
+    // ---- WHITE / BLACK background -----------------------------------------------------------------
+
+    private fun backgroundComposition(
+        context: Context,
+        source: Uri,
+        spec: VerticalSpec,
+        captionLines: List<CaptionLine>
+    ): Composition {
+        val canvasW = VerticalLayout.WIDTH
+        val canvasH = VerticalLayout.HEIGHT
+        val white = spec.style == VerticalStyle.WHITE
+
+        // The clip, as large as fits on the canvas without cropping anything.
+        val (srcW, srcH) = VideoInfo.size(context, source)
+        val scale = min(canvasW.toFloat() / srcW, canvasH.toFloat() / srcH)
+        val videoW = even((srcW * scale).roundToInt())
+        val videoH = even((srcH * scale).roundToInt())
+        // The picture covers the screen from -halfHeight to +halfHeight (-1 = bottom, +1 = top).
+        val halfHeight = videoH.toFloat() / canvasH
+
+        val video = EditedMediaItem.Builder(MediaItem.fromUri(source))
+            .setEffects(
+                Effects(
+                    emptyList(),
+                    listOf<Effect>(
+                        Presentation.createForWidthAndHeight(videoW, videoH, Presentation.LAYOUT_SCALE_TO_FIT)
+                    )
+                )
+            )
+            .build()
+
+        // The background: the same video made completely white (or black) and stretched over the whole
+        // canvas. It is drawn behind the real picture.
+        val background = EditedMediaItem.Builder(MediaItem.fromUri(source))
+            .setRemoveAudio(true)
+            .setEffects(
+                Effects(
+                    emptyList(),
+                    listOf<Effect>(
+                        Brightness(if (white) 1f else -1f),
+                        Presentation.createForWidthAndHeight(canvasW, canvasH, Presentation.LAYOUT_STRETCH_TO_FIT)
+                    )
+                )
+            )
+            .build()
+
+        val centred = StaticOverlaySettings.Builder().setBackgroundFrameAnchor(0f, 0f).build()
+        val compositor = object : VideoCompositorSettings {
+            override fun getOutputSize(inputSizes: List<Size>): Size = Size(canvasW, canvasH)
+
+            override fun getOverlaySettings(inputId: Int, presentationTimeUs: Long): OverlaySettings = centred
+        }
+
+        val overlays = mutableListOf<TextureOverlay>()
+        if (spec.topText.isNotBlank()) {
+            // On the top bar, centred between the top of the picture and the top of the screen.
+            val barCenterY = if (halfHeight < 0.92f) (1f + halfHeight) / 2f else 0.85f
+            overlays += TitleOverlay(
+                text = spec.topText.trim(),
+                centerY = barCenterY,
+                showForMs = Long.MAX_VALUE,           // stays for the whole video
+                inverted = white                      // white text on black box, so it shows on white
+            )
+        }
+        if (captionLines.isNotEmpty()) {
+            overlays += CaptionOverlay(
+                lines = captionLines,
+                textSizePx = (canvasW * CAPTION_SIZE_RATIO).toInt(),
+                centerY = -halfHeight + BARS_CAPTION_LIFT
+            )
+        }
+
+        // First sequence = the main one (front, sets the timing, keeps the sound).
+        return Composition.Builder(
+            EditedMediaItemSequence.Builder(video).build(),
+            EditedMediaItemSequence.Builder(background).build()
+        )
+            .setVideoCompositorSettings(compositor)
+            .setEffects(Effects(emptyList(), finalEffects(overlays)))
+            .build()
+    }
+
+    // ---- SPLIT screen -----------------------------------------------------------------------------
+
+    private fun splitComposition(
+        source: Uri,
+        spec: VerticalSpec,
+        captionLines: List<CaptionLine>
+    ): Composition {
         val width = VerticalLayout.WIDTH
         val region = spec.region
 
@@ -101,25 +204,30 @@ object VerticalComposer {
         // Text drawn on top of the finished picture: the title box, then the captions.
         val overlays = mutableListOf<TextureOverlay>()
         if (spec.topText.isNotBlank()) {
-            overlays += TitleOverlay(spec.topText.trim(), VerticalLayout.seamY, TITLE_SHOW_MS)
+            overlays += TitleOverlay(spec.topText.trim(), VerticalLayout.seamY, SPLIT_TITLE_MS)
         }
         if (captionLines.isNotEmpty()) {
             overlays += CaptionOverlay(
                 lines = captionLines,
                 textSizePx = (width * CAPTION_SIZE_RATIO).toInt(),
-                centerY = VerticalLayout.seamY - CAPTION_OFFSET_BELOW_SEAM
+                centerY = VerticalLayout.seamY - SPLIT_CAPTION_OFFSET_BELOW_SEAM
             )
         }
-        val finalEffects = if (overlays.isEmpty()) emptyList<Effect>() else listOf<Effect>(OverlayEffect(overlays))
 
-        val composition = Composition.Builder(
+        return Composition.Builder(
             EditedMediaItemSequence.Builder(gameplay).build(),
             EditedMediaItemSequence.Builder(facecam).build()
         )
             .setVideoCompositorSettings(compositor)
-            .setEffects(Effects(emptyList(), finalEffects))
+            .setEffects(Effects(emptyList(), finalEffects(overlays)))
             .build()
-
-        Exporter.export(context, composition, output, onProgress)
     }
+
+    // ---- Helpers ----------------------------------------------------------------------------------
+
+    private fun finalEffects(overlays: List<TextureOverlay>): List<Effect> =
+        if (overlays.isEmpty()) emptyList() else listOf(OverlayEffect(overlays))
+
+    /** Video encoders need even sizes. */
+    private fun even(value: Int): Int = (value / 2 * 2).coerceAtLeast(2)
 }

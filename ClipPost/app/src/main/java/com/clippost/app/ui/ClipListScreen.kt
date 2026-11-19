@@ -32,6 +32,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -49,6 +50,7 @@ import com.clippost.app.Privacy
 import com.clippost.app.UploadState
 import com.clippost.app.displayName
 import com.clippost.app.keepReadAccess
+import com.clippost.app.signingSha1
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,7 +94,8 @@ fun ClipListScreen(viewModel: ClipViewModel = viewModel()) {
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
 
-            ConnectCard(state = viewModel.authState, onConnect = viewModel::connect)
+            val appInfo = remember { "Package: ${context.packageName}\nSHA-1: ${context.signingSha1()}" }
+            ConnectCard(state = viewModel.authState, appInfo = appInfo, onConnect = viewModel::connect)
 
             if (viewModel.clips.isEmpty()) {
                 Box(
@@ -126,24 +129,27 @@ fun ClipListScreen(viewModel: ClipViewModel = viewModel()) {
 }
 
 @Composable
-private fun ConnectCard(state: AuthState, onConnect: () -> Unit) {
+private fun ConnectCard(state: AuthState, appInfo: String, onConnect: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("YouTube", style = MaterialTheme.typography.titleSmall)
-                when (state) {
-                    AuthState.Connected -> Text("Connected ✓")
-                    AuthState.Connecting -> Text("Connecting…")
-                    AuthState.Disconnected -> Text("Not connected")
-                    is AuthState.Failed -> Text(state.message, color = MaterialTheme.colorScheme.error)
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("YouTube", style = MaterialTheme.typography.titleSmall)
+                    when (state) {
+                        AuthState.Connected -> Text("Connected ✓")
+                        AuthState.Connecting -> Text("Connecting…")
+                        AuthState.Disconnected -> Text("Not connected")
+                        is AuthState.Failed -> Text(state.message, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                if (state != AuthState.Connected) {
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = onConnect, enabled = state != AuthState.Connecting) { Text("Connect") }
                 }
             }
             if (state != AuthState.Connected) {
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = onConnect, enabled = state != AuthState.Connecting) { Text("Connect") }
+                // What Google sees. These two lines must match the Android OAuth client in Google Cloud.
+                Text(appInfo, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             }
         }
     }
